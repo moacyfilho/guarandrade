@@ -1,10 +1,14 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
 
-export default function PDV() {
+function PDVContent() {
+    const searchParams = useSearchParams();
+    const tableParam = searchParams.get('table');
+
     const [activeCategory, setActiveCategory] = useState({ id: 'all', name: 'Todos' });
     const [categories, setCategories] = useState<any[]>([]);
     const [menuItems, setMenuItems] = useState<any[]>([]);
@@ -12,7 +16,6 @@ export default function PDV() {
     const [cart, setCart] = useState<{ item: any, qty: number }[]>([]);
     const [selectedTable, setSelectedTable] = useState<number | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [lastOrder, setLastOrder] = useState<any>(null);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -25,9 +28,14 @@ export default function PDV() {
             if (categoriesRes.data) setCategories(categoriesRes.data);
             if (productsRes.data) setMenuItems(productsRes.data);
             if (tablesRes.data) setTables(tablesRes.data);
+
+            // Auto-select table from URL if present
+            if (tableParam) {
+                setSelectedTable(parseInt(tableParam));
+            }
         };
         fetchData();
-    }, []);
+    }, [tableParam]);
 
     const addToCart = (item: any, quantity: number = 1) => {
         setCart(prev => {
@@ -77,13 +85,6 @@ export default function PDV() {
         });
     };
 
-    const handlePrint = (orderData: any) => {
-        setLastOrder(orderData);
-        setTimeout(() => {
-            window.print();
-        }, 500);
-    };
-
     const finalizarPedido = async () => {
         if (!selectedTable || cart.length === 0) return;
         setIsSubmitting(true);
@@ -122,18 +123,14 @@ export default function PDV() {
                 .update({ status: 'occupied', total_amount: newTotal })
                 .eq('id', selectedTable);
 
-            // Print Preparation
-            const orderForPrint = {
-                id: order.id,
-                tableName: `MESA ${selectedTable}`,
-                time: new Date().toLocaleTimeString(),
-                items: cart.map(c => ({ name: c.item.name, qty: c.qty }))
-            };
-
-            handlePrint(orderForPrint);
-
+            alert('Pedido enviado com sucesso para a cozinha! 🍳');
             setCart([]);
             setSelectedTable(null);
+
+            // Refresh tables list
+            const { data: updatedTables } = await supabase.from('tables').select('*').order('id', { ascending: true });
+            if (updatedTables) setTables(updatedTables);
+
         } catch (error: any) {
             alert('Erro ao enviar pedido: ' + error.message);
         } finally {
@@ -173,7 +170,7 @@ export default function PDV() {
                                         };
                                     }
                                 }}
-                                className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center shadow-xl hover:scale-110 active:scale-95 transition-all text-white relative group"
+                                className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center shadow-xl hover:scale-110 active:scale-95 transition-all text-white relative group border border-white/10"
                             >
                                 <span className="absolute -top-1 -right-1 flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span></span>
                                 🎤
@@ -203,7 +200,14 @@ export default function PDV() {
 
                 <aside className="w-80 md:w-96 glass flex flex-col overflow-hidden border-l border-white/5">
                     <div className="p-6 border-b border-white/5 bg-white/5">
-                        <h3 className="font-bold text-xl text-white mb-4">Mesa Selecionada</h3>
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-xl text-white">Mesa Selecionada</h3>
+                            {selectedTable && (
+                                <span className="bg-indigo-600/20 text-indigo-400 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-tighter border border-indigo-500/20">
+                                    Mesa {selectedTable}
+                                </span>
+                            )}
+                        </div>
                         <div className="grid grid-cols-4 gap-2">
                             {tables.map(table => (
                                 <button key={table.id} onClick={() => setSelectedTable(table.id)} className={`py-2 text-xs uppercase font-bold rounded-lg transition-all ${selectedTable === table.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40' : table.status === 'occupied' ? 'bg-red-500/10 text-red-500' : table.status === 'dirty' ? 'bg-yellow-500/10 text-yellow-500' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>{table.id}</button>
@@ -229,63 +233,27 @@ export default function PDV() {
 
                     <div className="p-6 border-t border-white/5 bg-white/5 space-y-4">
                         <div className="flex justify-between items-center text-white">
-                            <span className="text-gray-400 font-medium">Subtotal:</span>
+                            <span className="text-gray-400 font-medium">Subtotal Agora:</span>
                             <span className="text-3xl font-extrabold text-indigo-400">R$ {total.toFixed(2).replace('.', ',')}</span>
                         </div>
                         <button
                             onClick={finalizarPedido}
                             disabled={cart.length === 0 || !selectedTable || isSubmitting}
-                            className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-bold text-lg hover:bg-indigo-500 disabled:opacity-50 uppercase tracking-widest"
+                            className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-bold text-lg hover:bg-indigo-500 disabled:opacity-50 uppercase tracking-widest transition-all active:scale-95 shadow-xl shadow-indigo-600/20"
                         >
-                            {isSubmitting ? 'ENVIANDO...' : 'LANÇAR E IMPRIMIR'}
+                            {isSubmitting ? 'ENVIANDO...' : 'LANÇAR PEDIDO'}
                         </button>
                     </div>
                 </aside>
             </div>
-
-            {/* Print Section (Hidden in UI) */}
-            {lastOrder && (
-                <div className="hidden print:block fixed inset-0 bg-white p-4 text-black font-mono text-sm">
-                    <center>
-                        <h2 className="text-lg font-bold">GUARANDRADE</h2>
-                        <p>Dos Selvas e Dos Feras</p>
-                        <hr className="my-2 border-black" />
-                        <h3 className="font-bold">{lastOrder.tableName}</h3>
-                        <p>Data: {new Date().toLocaleDateString()}</p>
-                        <p>Hora: {lastOrder.time}</p>
-                        <hr className="my-2 border-black" />
-                    </center>
-                    <table className="w-full">
-                        <thead>
-                            <tr>
-                                <th className="text-left">Qtd</th>
-                                <th className="text-left">Item</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {lastOrder.items.map((it: any, i: number) => (
-                                <tr key={i}>
-                                    <td>{it.qty}x</td>
-                                    <td>{it.name}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    <hr className="my-2 border-black" />
-                    <center>
-                        <p className="mt-4 italic">Bom apetite!</p>
-                        <p className="text-[10px] mt-2">Guarandrade System</p>
-                    </center>
-                </div>
-            )}
-
-            <style jsx global>{`
-                @media print {
-                    .flex, aside, section, header, Sidebar { display: none !important; }
-                    .print\\:block { display: block !important; }
-                    body { margin: 0; padding: 0; background: white; }
-                }
-            `}</style>
         </div>
+    );
+}
+
+export default function PDV() {
+    return (
+        <Suspense fallback={<div className="p-10 text-white">Carregando PDV...</div>}>
+            <PDVContent />
+        </Suspense>
     );
 }
