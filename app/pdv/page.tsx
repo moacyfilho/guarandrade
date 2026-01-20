@@ -12,6 +12,7 @@ export default function PDV() {
     const [cart, setCart] = useState<{ item: any, qty: number }[]>([]);
     const [selectedTable, setSelectedTable] = useState<number | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [lastOrder, setLastOrder] = useState<any>(null);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -50,44 +51,37 @@ export default function PDV() {
 
     const processVoiceCommand = (text: string) => {
         const words = text.toLowerCase();
-
-        // 1. Table Matching
         const mesaMatch = words.match(/mesa (\d+)/);
-        if (mesaMatch) {
-            setSelectedTable(parseInt(mesaMatch[1]));
-        }
+        if (mesaMatch) setSelectedTable(parseInt(mesaMatch[1]));
 
-        // 2. Quantity mapping
         const qtdMap: { [key: string]: number } = {
             'um': 1, 'uma': 1, 'dois': 2, 'duas': 2, 'três': 3, 'quatro': 4, 'cinco': 5,
             'seis': 6, 'sete': 7, 'oito': 8, 'nove': 9, 'dez': 10
         };
 
-        // 3. Product matching with quantities
         menuItems.forEach(item => {
             const itemName = item.name.toLowerCase();
             if (words.includes(itemName)) {
                 let foundAny = false;
-
-                // Simple search for number keywords near product name
                 Object.keys(qtdMap).forEach(key => {
-                    if (words.includes(`${key} ${itemName}`) || words.includes(`${key} unidades de ${itemName}`)) {
+                    if (words.includes(`${key} ${itemName}`)) {
                         addToCart(item, qtdMap[key]);
                         foundAny = true;
                     }
                 });
-
                 if (!foundAny) {
-                    // Check for numeric digits
                     const digitMatch = words.match(new RegExp(`(\\d+)\\s+${itemName}`));
-                    if (digitMatch) {
-                        addToCart(item, parseInt(digitMatch[1]));
-                    } else {
-                        addToCart(item, 1);
-                    }
+                    addToCart(item, digitMatch ? parseInt(digitMatch[1]) : 1);
                 }
             }
         });
+    };
+
+    const handlePrint = (orderData: any) => {
+        setLastOrder(orderData);
+        setTimeout(() => {
+            window.print();
+        }, 500);
     };
 
     const finalizarPedido = async () => {
@@ -128,7 +122,16 @@ export default function PDV() {
                 .update({ status: 'occupied', total_amount: newTotal })
                 .eq('id', selectedTable);
 
-            alert('Pedido enviado com sucesso para a cozinha! 🍳');
+            // Print Preparation
+            const orderForPrint = {
+                id: order.id,
+                tableName: `MESA ${selectedTable}`,
+                time: new Date().toLocaleTimeString(),
+                items: cart.map(c => ({ name: c.item.name, qty: c.qty }))
+            };
+
+            handlePrint(orderForPrint);
+
             setCart([]);
             setSelectedTable(null);
         } catch (error: any) {
@@ -140,8 +143,7 @@ export default function PDV() {
 
     const getProductIcon = (item: any) => {
         const cat = categories.find(c => c.id === item.category_id);
-        if (cat) return cat.icon;
-        return '🍔';
+        return cat?.icon || '🍔';
     };
 
     return (
@@ -149,7 +151,6 @@ export default function PDV() {
             <Sidebar />
 
             <div className="flex-1 flex gap-4">
-                {/* Menu Section */}
                 <section className="flex-1 flex flex-col gap-6">
                     <header className="flex justify-between items-center py-2">
                         <div className="flex items-center gap-4">
@@ -167,52 +168,30 @@ export default function PDV() {
                                     if (recognition) {
                                         recognition.stop();
                                         recognition.onresult = (event: any) => {
-                                            const text = event.results[0][0].transcript;
-                                            processVoiceCommand(text);
+                                            processVoiceCommand(event.results[0][0].transcript);
                                             document.getElementById('pdv-mic-status')?.classList.add('hidden');
                                         };
                                     }
                                 }}
                                 className="w-12 h-12 rounded-full bg-indigo-600 flex items-center justify-center shadow-xl hover:scale-110 active:scale-95 transition-all text-white relative group"
                             >
-                                <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
-                                </span>
+                                <span className="absolute -top-1 -right-1 flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span></span>
                                 🎤
                             </button>
-                            <span id="pdv-mic-status" className="hidden text-xs font-bold text-indigo-400 uppercase animate-pulse">Ouvindo Inteligência...</span>
+                            <span id="pdv-mic-status" className="hidden text-xs font-bold text-indigo-400 uppercase animate-pulse">Ouvindo...</span>
                         </div>
                         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide max-w-[500px]">
-                            <button
-                                onClick={() => setActiveCategory({ id: 'all', name: 'Todos' })}
-                                className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all ${activeCategory.id === 'all' ? 'bg-white text-black' : 'glass text-gray-400 hover:text-white'}`}
-                            >
-                                Todos
-                            </button>
+                            <button onClick={() => setActiveCategory({ id: 'all', name: 'Todos' })} className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${activeCategory.id === 'all' ? 'bg-white text-black' : 'glass text-gray-400 hover:text-white'}`}>Todos</button>
                             {categories.map(cat => (
-                                <button
-                                    key={cat.id}
-                                    onClick={() => setActiveCategory(cat)}
-                                    className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap flex items-center gap-2 transition-all ${activeCategory.id === cat.id ? 'bg-white text-black' : 'glass text-gray-400 hover:text-white'}`}
-                                >
-                                    <span>{cat.icon}</span>
-                                    {cat.name}
-                                </button>
+                                <button key={cat.id} onClick={() => setActiveCategory(cat)} className={`px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all ${activeCategory.id === cat.id ? 'bg-white text-black' : 'glass text-gray-400 hover:text-white'}`}><span>{cat.icon}</span>{cat.name}</button>
                             ))}
                         </div>
                     </header>
 
                     <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pr-2 pb-4 scrollbar-hide">
                         {menuItems.filter(i => activeCategory.id === 'all' || i.category_id === activeCategory.id).map(item => (
-                            <div
-                                key={item.id}
-                                onClick={() => addToCart(item)}
-                                className="glass p-5 cursor-pointer hover:bg-white/5 active:scale-95 text-center flex flex-col items-center gap-4 group h-fit"
-                            >
-                                <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">
-                                    {getProductIcon(item)}
-                                </div>
+                            <div key={item.id} onClick={() => addToCart(item)} className="glass p-5 cursor-pointer hover:bg-white/5 active:scale-95 text-center flex flex-col items-center gap-4 group h-fit">
+                                <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">{getProductIcon(item)}</div>
                                 <div className="space-y-1">
                                     <h4 className="font-bold text-white text-sm line-clamp-2 leading-tight">{item.name}</h4>
                                     <p className="text-indigo-400 font-bold">R$ {parseFloat(item.price).toFixed(2).replace('.', ',')}</p>
@@ -222,23 +201,12 @@ export default function PDV() {
                     </div>
                 </section>
 
-                {/* Cart Section */}
                 <aside className="w-80 md:w-96 glass flex flex-col overflow-hidden border-l border-white/5">
                     <div className="p-6 border-b border-white/5 bg-white/5">
                         <h3 className="font-bold text-xl text-white mb-4">Mesa Selecionada</h3>
                         <div className="grid grid-cols-4 gap-2">
                             {tables.map(table => (
-                                <button
-                                    key={table.id}
-                                    onClick={() => setSelectedTable(table.id)}
-                                    className={`py-2 text-xs uppercase font-bold rounded-lg transition-all ${selectedTable === table.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40' :
-                                        table.status === 'occupied' ? 'bg-red-500/10 text-red-500' :
-                                            table.status === 'dirty' ? 'bg-yellow-500/10 text-yellow-500' :
-                                                'bg-white/5 text-gray-400 hover:bg-white/10'
-                                        }`}
-                                >
-                                    {table.id}
-                                </button>
+                                <button key={table.id} onClick={() => setSelectedTable(table.id)} className={`py-2 text-xs uppercase font-bold rounded-lg transition-all ${selectedTable === table.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/40' : table.status === 'occupied' ? 'bg-red-500/10 text-red-500' : table.status === 'dirty' ? 'bg-yellow-500/10 text-yellow-500' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>{table.id}</button>
                             ))}
                         </div>
                     </div>
@@ -247,27 +215,16 @@ export default function PDV() {
                         {cart.map(c => (
                             <div key={c.item.id} className="flex justify-between items-center animate-fade-in">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-xl">
-                                        {getProductIcon(c.item)}
-                                    </div>
-                                    <div className="max-w-[120px]">
-                                        <h5 className="text-sm font-bold text-white truncate">{c.item.name}</h5>
-                                        <p className="text-[10px] text-gray-500">R$ {parseFloat(c.item.price).toFixed(2)} un.</p>
-                                    </div>
+                                    <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-xl">{getProductIcon(c.item)}</div>
+                                    <div className="max-w-[120px]"><h5 className="text-sm font-bold text-white truncate">{c.item.name}</h5><p className="text-[10px] text-gray-500">R$ {parseFloat(c.item.price).toFixed(2)} un.</p></div>
                                 </div>
                                 <div className="flex items-center gap-3 glass p-1 rounded-lg">
-                                    <button onClick={() => removeFromCart(c.item.id)} className="w-6 h-6 flex items-center justify-center font-bold text-red-400 hover:bg-red-500/10 rounded">-</button>
+                                    <button onClick={() => removeFromCart(c.item.id)} className="w-6 h-6 flex items-center justify-center font-bold text-red-400 rounded">-</button>
                                     <span className="text-sm font-bold text-white w-4 text-center">{c.qty}</span>
-                                    <button onClick={() => addToCart(c.item)} className="w-6 h-6 flex items-center justify-center font-bold text-green-400 hover:bg-green-500/10 rounded">+</button>
+                                    <button onClick={() => addToCart(c.item)} className="w-6 h-6 flex items-center justify-center font-bold text-green-400 rounded">+</button>
                                 </div>
                             </div>
                         ))}
-                        {cart.length === 0 && (
-                            <div className="text-center py-20 opacity-20 text-white">
-                                <div className="text-6xl mb-4 text-indigo-500">🛒</div>
-                                <p className="font-bold tracking-widest uppercase text-xs text-center px-4">Adicione itens para começar</p>
-                            </div>
-                        )}
                     </div>
 
                     <div className="p-6 border-t border-white/5 bg-white/5 space-y-4">
@@ -278,13 +235,57 @@ export default function PDV() {
                         <button
                             onClick={finalizarPedido}
                             disabled={cart.length === 0 || !selectedTable || isSubmitting}
-                            className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-bold text-lg hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-indigo-600/30 transition-all active:scale-95 uppercase tracking-widest"
+                            className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-bold text-lg hover:bg-indigo-500 disabled:opacity-50 uppercase tracking-widest"
                         >
-                            {isSubmitting ? 'LANÇANDO...' : 'FECHAR PEDIDO'}
+                            {isSubmitting ? 'ENVIANDO...' : 'LANÇAR E IMPRIMIR'}
                         </button>
                     </div>
                 </aside>
             </div>
+
+            {/* Print Section (Hidden in UI) */}
+            {lastOrder && (
+                <div className="hidden print:block fixed inset-0 bg-white p-4 text-black font-mono text-sm">
+                    <center>
+                        <h2 className="text-lg font-bold">GUARANDRADE</h2>
+                        <p>Dos Selvas e Dos Feras</p>
+                        <hr className="my-2 border-black" />
+                        <h3 className="font-bold">{lastOrder.tableName}</h3>
+                        <p>Data: {new Date().toLocaleDateString()}</p>
+                        <p>Hora: {lastOrder.time}</p>
+                        <hr className="my-2 border-black" />
+                    </center>
+                    <table className="w-full">
+                        <thead>
+                            <tr>
+                                <th className="text-left">Qtd</th>
+                                <th className="text-left">Item</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {lastOrder.items.map((it: any, i: number) => (
+                                <tr key={i}>
+                                    <td>{it.qty}x</td>
+                                    <td>{it.name}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    <hr className="my-2 border-black" />
+                    <center>
+                        <p className="mt-4 italic">Bom apetite!</p>
+                        <p className="text-[10px] mt-2">Guarandrade System</p>
+                    </center>
+                </div>
+            )}
+
+            <style jsx global>{`
+                @media print {
+                    .flex, aside, section, header, Sidebar { display: none !important; }
+                    .print\\:block { display: block !important; }
+                    body { margin: 0; padding: 0; background: white; }
+                }
+            `}</style>
         </div>
     );
 }
