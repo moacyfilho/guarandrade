@@ -1,25 +1,65 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
+import { supabase } from '@/lib/supabase';
 
 export default function Cozinha() {
-    const [orders, setOrders] = useState([
-        { id: 101, mesa: '04', tempo: '12 min', status: 'preparando', items: ['2x X-Tudo', '1x Batata Média'] },
-        { id: 102, mesa: '08', tempo: '5 min', status: 'fila', items: ['1x Hot Dog Especial', '1x Suco de Laranja'] },
-        { id: 103, mesa: '02', tempo: '18 min', status: 'atrasado', items: ['3x Coxinha', '1x Guaraná 2L'] },
-        { id: 104, mesa: '01', tempo: '2 min', status: 'fila', items: ['1x Pastel de Carne', '1x Café'] },
-    ]);
+    const [orders, setOrders] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
 
-    const updateStatus = (id: number) => {
-        setOrders(orders.map(o => {
-            if (o.id === id) {
-                if (o.status === 'fila') return { ...o, status: 'preparando' };
-                if (o.status === 'preparando') return { ...o, status: 'pronto' };
-            }
-            return o;
-        }).filter(o => o.status !== 'pronto'));
+    const fetchOrders = async () => {
+        const { data, error } = await supabase
+            .from('orders')
+            .select(`
+        *,
+        tables (name),
+        order_items (
+          *,
+          products (name)
+        )
+      `)
+            .neq('status', 'finalizado')
+            .order('created_at', { ascending: true });
+
+        if (!error && data) {
+            setOrders(data);
+        }
+        setLoading(false);
     };
+
+    useEffect(() => {
+        fetchOrders();
+
+        const channel = supabase
+            .channel('public:orders')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+                fetchOrders();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, []);
+
+    const updateStatus = async (id: string, currentStatus: string) => {
+        let nextStatus = '';
+        if (currentStatus === 'fila') nextStatus = 'preparando';
+        else if (currentStatus === 'preparando') nextStatus = 'pronto';
+        else return;
+
+        await supabase
+            .from('orders')
+            .update({ status: nextStatus })
+            .eq('id', id);
+    };
+
+    if (loading) return (
+        <div className="flex h-screen items-center justify-center bg-black">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-indigo-600"></div>
+        </div>
+    );
 
     return (
         <div className="flex h-screen p-4 gap-4">
@@ -43,22 +83,20 @@ export default function Cozinha() {
                             }`}>
                             <div className="p-4 border-b border-white/5 flex justify-between items-center">
                                 <div>
-                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Pedido #{order.id}</span>
-                                    <h3 className="text-xl font-bold text-white">Mesa {order.mesa}</h3>
+                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Pedido #{order.id.slice(0, 4)}</span>
+                                    <h3 className="text-xl font-bold text-white">{order.tables?.name || 'Mesa ?'}</h3>
                                 </div>
-                                <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${order.status === 'atrasado' ? 'bg-red-500 text-white' :
-                                        order.status === 'preparando' ? 'bg-blue-500 text-white' : 'bg-gray-700 text-gray-300'
-                                    }`}>
-                                    {order.tempo}
+                                <div className={`px-2 py-1 rounded text-[10px] font-bold uppercase bg-gray-700 text-gray-300`}>
+                                    {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </div>
                             </div>
 
                             <div className="p-4 flex-1">
                                 <ul className="space-y-2">
-                                    {order.items.map((item, i) => (
-                                        <li key={i} className="flex items-center gap-2 text-white font-medium">
+                                    {order.order_items?.map((item: any) => (
+                                        <li key={item.id} className="flex items-center gap-2 text-white font-medium">
                                             <input type="checkbox" className="w-5 h-5 rounded border-gray-600 bg-transparent" />
-                                            {item}
+                                            {item.quantity}x {item.products?.name}
                                         </li>
                                     ))}
                                 </ul>
@@ -66,7 +104,7 @@ export default function Cozinha() {
 
                             <div className="p-4 bg-white/5">
                                 <button
-                                    onClick={() => updateStatus(order.id)}
+                                    onClick={() => updateStatus(order.id, order.status)}
                                     className={`w-full py-3 rounded-xl font-bold transition-all ${order.status === 'fila' ? 'bg-indigo-600 text-white hover:bg-indigo-500' :
                                             order.status === 'preparando' ? 'bg-green-600 text-white hover:bg-green-500' :
                                                 'bg-red-600 text-white hover:bg-red-500'
@@ -81,7 +119,7 @@ export default function Cozinha() {
                 </div>
 
                 {orders.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-20 opacity-50">
+                    <div className="flex flex-col items-center justify-center py-20 opacity-50 text-white">
                         <div className="text-6xl mb-4">💤</div>
                         <p className="text-xl font-medium">Nenhum pedido pendente na cozinha.</p>
                     </div>

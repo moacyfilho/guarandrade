@@ -1,15 +1,48 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
+import { supabase } from '@/lib/supabase';
 
 export default function Mesas() {
-    const [tables, setTables] = useState(Array.from({ length: 12 }, (_, i) => ({
-        id: i + 1,
-        status: i % 3 === 0 ? 'occupied' : i % 5 === 0 ? 'dirty' : 'available',
-        orders: i % 3 === 0 ? Math.floor(Math.random() * 5) + 1 : 0,
-        total: i % 3 === 0 ? (Math.random() * 100 + 20).toFixed(2) : '0.00'
-    })));
+    const [tables, setTables] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const fetchTables = async () => {
+        const { data, error } = await supabase
+            .from('tables')
+            .select('*')
+            .order('id', { ascending: true });
+
+        if (!error && data) {
+            setTables(data);
+        }
+        setLoading(false);
+    };
+
+    useEffect(() => {
+        fetchTables();
+
+        const channel = supabase
+            .channel('public:tables')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => {
+                fetchTables();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, []);
+
+    if (loading) return (
+        <div className="flex h-screen items-center justify-center bg-black text-white">
+            <div className="animate-pulse flex flex-col items-center gap-4">
+                <div className="w-12 h-12 bg-indigo-600 rounded-xl"></div>
+                <p className="font-bold tracking-widest uppercase text-xs">Carregando Guarandrade...</p>
+            </div>
+        </div>
+    );
 
     return (
         <div className="flex h-screen p-4 gap-4">
@@ -31,14 +64,14 @@ export default function Mesas() {
                     {tables.map(table => (
                         <div key={table.id} className="glass p-6 flex flex-col gap-4 relative overflow-hidden group">
                             <div className={`absolute top-0 right-0 w-2 h-full ${table.status === 'occupied' ? 'bg-red-500' :
-                                    table.status === 'dirty' ? 'bg-yellow-500' : 'bg-green-500'
+                                table.status === 'dirty' ? 'bg-yellow-500' : 'bg-green-500'
                                 }`} />
 
                             <div className="flex justify-between items-start">
                                 <div>
-                                    <h3 className="text-2xl font-bold text-white">Mesa {table.id}</h3>
+                                    <h3 className="text-2xl font-bold text-white">{table.name}</h3>
                                     <span className={`text-[10px] font-bold uppercase ${table.status === 'occupied' ? 'text-red-400' :
-                                            table.status === 'dirty' ? 'text-yellow-400' : 'text-green-400'
+                                        table.status === 'dirty' ? 'text-yellow-400' : 'text-green-400'
                                         }`}>
                                         {table.status === 'occupied' ? 'Ocupada' :
                                             table.status === 'dirty' ? 'Limpeza' : 'Disponível'}
@@ -52,12 +85,8 @@ export default function Mesas() {
                             {table.status === 'occupied' ? (
                                 <div className="flex-1 space-y-2">
                                     <div className="flex justify-between text-sm">
-                                        <span className="text-gray-400">Itens:</span>
-                                        <span className="text-white font-bold">{table.orders}</span>
-                                    </div>
-                                    <div className="flex justify-between text-sm">
                                         <span className="text-gray-400">Total:</span>
-                                        <span className="text-indigo-400 font-bold">R$ {table.total}</span>
+                                        <span className="text-indigo-400 font-bold">R$ {table.total_amount || '0.00'}</span>
                                     </div>
                                 </div>
                             ) : (

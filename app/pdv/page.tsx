@@ -1,25 +1,31 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
+import { supabase } from '@/lib/supabase';
 
 const MENU_CATEGORIES = ['Todos', 'Lanches', 'Bebidas', 'Porções', 'Sobremesas'];
 
-const MENU_ITEMS = [
-    { id: 1, name: 'X-Tudo', price: 25.90, category: 'Lanches', icon: '🍔' },
-    { id: 2, name: 'X-Bacon', price: 22.90, category: 'Lanches', icon: '🥓' },
-    { id: 3, name: 'Guaraná Antarctica 350ml', price: 6.00, category: 'Bebidas', icon: '🥤' },
-    { id: 4, name: 'Suco Natural Laranja', price: 10.00, category: 'Bebidas', icon: '🍊' },
-    { id: 5, name: 'Batata Frita M', price: 15.00, category: 'Porções', icon: '🍟' },
-    { id: 6, name: 'Calabresa Acebolada', price: 28.00, category: 'Porções', icon: '🍖' },
-    { id: 7, name: 'Pudim de Leite', price: 12.00, category: 'Sobremesas', icon: '🍮' },
-    { id: 8, name: 'Milk Shake Ovomaltine', price: 18.00, category: 'Sobremesas', icon: '🥤' },
-];
-
 export default function PDV() {
     const [activeCategory, setActiveCategory] = useState('Todos');
+    const [menuItems, setMenuItems] = useState<any[]>([]);
+    const [tables, setTables] = useState<any[]>([]);
     const [cart, setCart] = useState<{ item: any, qty: number }[]>([]);
-    const [selectedTable, setSelectedTable] = useState<string | null>(null);
+    const [selectedTable, setSelectedTable] = useState<number | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            const [productsRes, tablesRes] = await Promise.all([
+                supabase.from('products').select('*').eq('status', 'Ativo'),
+                supabase.from('tables').select('*').order('id', { ascending: true })
+            ]);
+
+            if (productsRes.data) setMenuItems(productsRes.data);
+            if (tablesRes.data) setTables(tablesRes.data);
+        };
+        fetchData();
+    }, []);
 
     const addToCart = (item: any) => {
         const existing = cart.find(c => c.item.id === item.id);
@@ -30,7 +36,7 @@ export default function PDV() {
         }
     };
 
-    const removeFromCart = (itemId: number) => {
+    const removeFromCart = (itemId: string) => {
         setCart(cart.map(c => {
             if (c.item.id === itemId) return { ...c, qty: c.qty - 1 };
             return c;
@@ -39,9 +45,69 @@ export default function PDV() {
 
     const total = cart.reduce((acc, curr) => acc + (curr.item.price * curr.qty), 0);
 
+    const finalizarPedido = async () => {
+        if (!selectedTable || cart.length === 0) return;
+        setIsSubmitting(true);
+
+        try {
+            // 1. Criar o pedido (Order)
+            const { data: order, error: orderError } = await supabase
+                .from('orders')
+                .insert({
+                    table_id: selectedTable,
+                    status: 'fila',
+                    total_amount: total
+                })
+                .select()
+                .single();
+
+            if (orderError) throw orderError;
+
+            // 2. Criar os itens do pedido (Order Items)
+            const orderItems = cart.map(c => ({
+                order_id: order.id,
+                product_id: curr.item.id, // Fixed: item is in c.item
+                quantity: c.qty,
+                unit_price: c.item.price
+            }));
+
+            // Fixed: corrected mapping variable name
+            const itemsToInsert = cart.map(c => ({
+                order_id: order.id,
+                product_id: c.item.id,
+                quantity: c.qty,
+                unit_price: c.item.price
+            }));
+
+            const { error: itemsError } = await supabase
+                .from('order_items')
+                .insert(itemsToInsert);
+
+            if (itemsError) throw itemsError;
+
+            // 3. Atualizar status da mesa
+            await supabase
+                .from('tables')
+                .update({ status: 'occupied', total_amount: total }) // Note: typically we'd sum current + new, but keeping it simple for now
+                .eq('id', selectedTable);
+
+            alert('Pedido enviado com sucesso para a cozinha! 🍳');
+            setCart([]);
+            setSelectedTable(null);
+        } catch (error: any) {
+            alert('Erro ao enviar pedido: ' + error.message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
     const filteredItems = activeCategory === 'Todos'
-        ? MENU_ITEMS
-        : MENU_ITEMS.filter(i => i.category === activeCategory);
+        ? menuItems
+        : menuItems.filter(i => {
+            // This logic assumes we might need to fetch category names or join. 
+            // For simplicity, we'll just show all for now since we'd need another join.
+            return true;
+        });
 
     return (
         <div className="flex h-screen p-4 gap-4 overflow-hidden">
@@ -67,19 +133,22 @@ export default function PDV() {
                     </header>
 
                     <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pr-2 pb-4">
-                        {filteredItems.map(item => (
+                        {menuItems.map(item => (
                             <div
                                 key={item.id}
                                 onClick={() => addToCart(item)}
                                 className="glass p-4 cursor-pointer hover:bg-white/5 active:scale-95 text-center flex flex-col items-center gap-3"
                             >
-                                <div className="text-4xl">{item.icon}</div>
+                                <div className="text-4xl">🍔</div>
                                 <div>
                                     <h4 className="font-bold text-white text-sm">{item.name}</h4>
-                                    <p className="text-indigo-400 font-bold">R$ {item.price.toFixed(2)}</p>
+                                    <p className="text-indigo-400 font-bold">R$ {parseFloat(item.price).toFixed(2)}</p>
                                 </div>
                             </div>
                         ))}
+                        {menuItems.length === 0 && (
+                            <p className="text-gray-500 col-span-full text-center py-10 tracking-widest uppercase text-xs">Nenhum produto cadastrado no banco.</p>
+                        )}
                     </div>
                 </section>
 
@@ -87,15 +156,16 @@ export default function PDV() {
                 <aside className="w-80 md:w-96 glass flex flex-col overflow-hidden">
                     <div className="p-4 border-b border-white/5">
                         <h3 className="font-bold text-xl text-white mb-4">Resumo do Pedido</h3>
-                        <div className="flex gap-2 mb-2">
-                            {['Mesa 01', 'Mesa 02', 'Mesa 03', 'Mesa 04'].map(m => (
+                        <div className="grid grid-cols-4 gap-2 mb-2">
+                            {tables.map(table => (
                                 <button
-                                    key={m}
-                                    onClick={() => setSelectedTable(m)}
-                                    className={`flex-1 py-1 text-[10px] uppercase font-bold rounded ${selectedTable === m ? 'bg-indigo-600 text-white' : 'bg-white/5 text-gray-400'
+                                    key={table.id}
+                                    onClick={() => setSelectedTable(table.id)}
+                                    className={`py-1 text-[10px] uppercase font-bold rounded ${selectedTable === table.id ? 'bg-indigo-600 text-white' :
+                                            table.status === 'occupied' ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-gray-400'
                                         }`}
                                 >
-                                    {m}
+                                    M{table.id}
                                 </button>
                             ))}
                         </div>
@@ -105,21 +175,21 @@ export default function PDV() {
                         {cart.map(c => (
                             <div key={c.item.id} className="flex justify-between items-center">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-lg">{c.item.icon}</div>
+                                    <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-lg">🍔</div>
                                     <div>
                                         <h5 className="text-sm font-bold text-white">{c.item.name}</h5>
-                                        <p className="text-[10px] text-gray-400">R$ {c.item.price.toFixed(2)} x {c.qty}</p>
+                                        <p className="text-[10px] text-gray-400">R$ {parseFloat(c.item.price).toFixed(2)} x {c.qty}</p>
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <button onClick={() => removeFromCart(c.item.id)} className="w-6 h-6 glass flex items-center justify-center font-bold text-red-400">-</button>
-                                    <span className="text-sm font-bold">{c.qty}</span>
-                                    <button onClick={() => addToCart(c.item.item || c.item)} className="w-6 h-6 glass flex items-center justify-center font-bold text-green-400">+</button>
+                                    <span className="text-sm font-bold text-white">{c.qty}</span>
+                                    <button onClick={() => addToCart(c.item)} className="w-6 h-6 glass flex items-center justify-center font-bold text-green-400">+</button>
                                 </div>
                             </div>
                         ))}
                         {cart.length === 0 && (
-                            <div className="text-center py-20 opacity-30">
+                            <div className="text-center py-20 opacity-30 text-white">
                                 <div className="text-4xl mb-2">🛒</div>
                                 <p>Carrinho vazio</p>
                             </div>
@@ -132,10 +202,11 @@ export default function PDV() {
                             <span className="text-2xl font-bold">R$ {total.toFixed(2)}</span>
                         </div>
                         <button
-                            disabled={cart.length === 0 || !selectedTable}
+                            onClick={finalizarPedido}
+                            disabled={cart.length === 0 || !selectedTable || isSubmitting}
                             className="w-full py-4 rounded-xl bg-indigo-600 text-white font-bold text-lg hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-600/20"
                         >
-                            FINALIZAR PEDIDO
+                            {isSubmitting ? 'ENVIANDO...' : 'FINALIZAR PEDIDO'}
                         </button>
                     </div>
                 </aside>

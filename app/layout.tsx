@@ -12,7 +12,7 @@ export default function RootLayout({
     children: React.ReactNode;
 }>) {
     return (
-        <html lang="pt-BR">
+        <html lang="pt-BR" suppressHydrationWarning>
             <body>
                 <div className="min-h-screen bg-[#050505] relative overflow-hidden">
                     {/* Animated background blobs */}
