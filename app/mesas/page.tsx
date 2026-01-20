@@ -54,7 +54,6 @@ export default function Mesas() {
             .neq('status', 'finalizado');
 
         if (data && data.length > 0) {
-            // Aggregate all items from multiple orders if necessary, although usually there's one active order flow
             const allItems = data.flatMap(o => o.order_items);
             const totalAmount = data.reduce((acc, curr) => acc + Number(curr.total_amount), 0);
 
@@ -71,22 +70,27 @@ export default function Mesas() {
         if (!receiptModal) return;
 
         const { table, order } = receiptModal;
-
-        // 1. Finalizar Pedidos
         const orderIds = order.originalOrders.map((o: any) => o.id);
-        await supabase
-            .from('orders')
-            .update({ status: 'finalizado' })
-            .in('id', orderIds);
 
-        // 2. Marcar Mesa para Limpeza
-        await supabase
-            .from('tables')
-            .update({ status: 'dirty', total_amount: 0 })
-            .eq('id', table.id);
+        try {
+            // 1. Finalizar Pedidos
+            await supabase
+                .from('orders')
+                .update({ status: 'finalizado' })
+                .in('id', orderIds);
 
-        setReceiptModal(null);
-        alert(`Mesa ${table.id} fechada com sucesso! 💰`);
+            // 2. Marcar Mesa para Limpeza
+            await supabase
+                .from('tables')
+                .update({ status: 'dirty', total_amount: 0 })
+                .eq('id', table.id);
+
+            setReceiptModal(null);
+            fetchTables();
+            alert(`Mesa ${table.id} fechada com sucesso! 💰`);
+        } catch (err) {
+            alert('Erro ao fechar conta.');
+        }
     };
 
     const handleLiberarMesa = async (id: number) => {
@@ -96,16 +100,6 @@ export default function Mesas() {
             .eq('id', id);
 
         if (!error) fetchTables();
-    };
-
-    const handleTableClick = (table: any) => {
-        if (table.status === 'occupied') {
-            handleOpenReceipt(table);
-        } else if (table.status === 'dirty') {
-            handleLiberarMesa(table.id);
-        } else {
-            router.push(`/pdv?table=${table.id}`);
-        }
     };
 
     const handleAddItems = (tableId: number) => {
@@ -137,11 +131,10 @@ export default function Mesas() {
                     {tables.map(table => (
                         <div
                             key={table.id}
-                            onClick={() => handleTableClick(table)}
-                            className="glass p-6 flex flex-col gap-4 relative overflow-hidden group cursor-pointer hover:bg-white/5 active:scale-95 transition-all"
+                            className="glass p-6 flex flex-col gap-4 relative overflow-hidden group border border-white/5 bg-white/5 active:scale-[0.98] transition-all"
                         >
-                            <div className={`absolute top-0 right-0 w-2 h-full ${table.status === 'occupied' ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' :
-                                table.status === 'dirty' ? 'bg-yellow-500' : 'bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]'
+                            <div className={`absolute top-0 right-0 w-2 h-full ${table.status === 'occupied' ? 'bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]' :
+                                table.status === 'dirty' ? 'bg-yellow-500' : 'bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]'
                                 }`} />
 
                             <div className="flex justify-between items-start">
@@ -151,10 +144,10 @@ export default function Mesas() {
                                         table.status === 'dirty' ? 'text-yellow-400' : 'text-green-400'
                                         }`}>
                                         {table.status === 'occupied' ? 'Ocupada' :
-                                            table.status === 'dirty' ? 'Para Limpeza' : 'Disponível'}
+                                            table.status === 'dirty' ? 'Limpeza Necessária' : 'Livre'}
                                     </span>
                                 </div>
-                                <div className="text-4xl grayscale group-hover:grayscale-0 group-hover:scale-110 transition-all duration-300">
+                                <div className="text-4xl group-hover:scale-110 transition-transform duration-300">
                                     {table.status === 'occupied' ? '🔥' : table.status === 'dirty' ? '🧹' : '🏠'}
                                 </div>
                             </div>
@@ -162,11 +155,11 @@ export default function Mesas() {
                             <div className="flex-1">
                                 {table.status === 'occupied' ? (
                                     <div className="space-y-1">
-                                        <p className="text-[10px] text-gray-500 font-black uppercase tracking-tighter">Consumo Total:</p>
-                                        <p className="text-3xl font-black text-indigo-400">R$ {parseFloat(table.total_amount).toFixed(2).replace('.', ',')}</p>
+                                        <p className="text-[10px] text-gray-500 font-black uppercase tracking-tighter opacity-70">Consumo Acumulado:</p>
+                                        <p className="text-3xl font-black text-indigo-400 tracking-tight">R$ {parseFloat(table.total_amount).toFixed(2).replace('.', ',')}</p>
                                     </div>
                                 ) : (
-                                    <p className="text-xs text-gray-500 font-bold uppercase tracking-tight opacity-50">Livre p/ Novos Pedidos</p>
+                                    <p className="text-xs text-gray-500 font-bold uppercase tracking-tight opacity-40">Aguardando clientes...</p>
                                 )}
                             </div>
 
@@ -174,22 +167,31 @@ export default function Mesas() {
                                 {table.status === 'occupied' ? (
                                     <div className="flex flex-col gap-2">
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); handleAddItems(table.id); }}
-                                            className="bg-indigo-600/20 text-indigo-400 py-3 rounded-xl font-black text-[10px] uppercase border border-indigo-500/20 hover:bg-indigo-600/40 transition-colors"
+                                            onClick={() => handleAddItems(table.id)}
+                                            className="bg-indigo-600/10 text-indigo-400 py-3 rounded-xl font-black text-[10px] uppercase border border-indigo-500/20 hover:bg-indigo-600 hover:text-white transition-all shadow-lg shadow-indigo-600/10"
                                         >
-                                            + Adicionar Itens
+                                            + Lançar Itens
                                         </button>
-                                        <button className="bg-red-600/20 text-red-400 py-3 rounded-xl font-black text-[10px] uppercase border border-red-500/20 hover:bg-red-600/40 transition-colors">
-                                            Ver Resumo / Fechar
+                                        <button
+                                            onClick={() => handleOpenReceipt(table)}
+                                            className="bg-red-600/10 text-red-400 py-3 rounded-xl font-black text-[10px] uppercase border border-red-500/20 hover:bg-red-600 hover:text-white transition-all"
+                                        >
+                                            Ver Itens / Fechar
                                         </button>
                                     </div>
                                 ) : table.status === 'dirty' ? (
-                                    <button className="bg-yellow-600/20 text-yellow-400 py-3 rounded-xl font-black text-[10px] uppercase border border-yellow-500/20 hover:bg-yellow-600/40 transition-colors">
-                                        Confirmar Limpeza
+                                    <button
+                                        onClick={() => handleLiberarMesa(table.id)}
+                                        className="bg-yellow-600/10 text-yellow-400 py-3 rounded-xl font-black text-[10px] uppercase border border-yellow-500/20 hover:bg-yellow-500 hover:text-black transition-all"
+                                    >
+                                        Mesa Limpa (Liberar)
                                     </button>
                                 ) : (
-                                    <button className="bg-green-600/20 text-green-400 py-3 rounded-xl font-black text-[10px] uppercase border border-green-500/20 hover:bg-green-600/40 transition-colors">
-                                        Abrir Mesa
+                                    <button
+                                        onClick={() => handleAddItems(table.id)}
+                                        className="bg-green-600/10 text-green-400 py-3 rounded-xl font-black text-[10px] uppercase border border-green-500/20 hover:bg-green-600 hover:text-white transition-all shadow-lg shadow-green-600/10"
+                                    >
+                                        Abrir Nova Conta
                                     </button>
                                 )}
                             </div>
@@ -201,49 +203,49 @@ export default function Mesas() {
             {/* Receipt Modal */}
             {receiptModal && (
                 <div
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md"
-                    onClick={(e) => e.stopPropagation()}
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl"
                 >
-                    <div className="glass w-full max-w-md overflow-hidden animate-fade-in shadow-2xl border-white/10" onClick={(e) => e.stopPropagation()}>
+                    <div className="glass w-full max-w-md overflow-hidden animate-fade-in shadow-2xl border border-white/10 bg-[#0A0A0A]">
                         <div className="p-8 bg-white/5 border-b border-white/5 text-center relative">
                             <button
                                 onClick={() => setReceiptModal(null)}
-                                className="absolute top-4 right-4 text-gray-500 hover:text-white"
+                                className="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors"
                             >✕</button>
-                            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Resumo da Mesa 🧾</h2>
-                            <p className="text-indigo-400 font-black uppercase tracking-[0.3em] text-[10px] mt-2">{receiptModal.table.name}</p>
+                            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Resumo Consumo 🧾</h2>
+                            <p className="text-indigo-400 font-black uppercase tracking-[0.3em] text-[10px] mt-2 italic px-4 py-1 bg-indigo-500/10 rounded-full w-fit mx-auto border border-indigo-500/20">{receiptModal.table.name}</p>
                         </div>
 
-                        <div className="p-8 space-y-4 max-h-[50vh] overflow-y-auto scrollbar-hide">
+                        <div className="p-8 space-y-4 max-h-[45vh] overflow-y-auto scrollbar-hide">
                             {receiptModal.order.items.map((item: any, i: number) => (
-                                <div key={i} className="flex justify-between items-center text-sm border-b border-white/5 pb-3">
+                                <div key={i} className="flex justify-between items-center text-sm border-b border-white/5 pb-3 group">
                                     <div className="flex flex-col">
-                                        <span className="text-white font-black uppercase text-[12px]">{item.quantity}x {item.products.name}</span>
-                                        <span className="text-[10px] text-gray-500 font-bold">UN: R$ {parseFloat(item.unit_price).toFixed(2)}</span>
+                                        <span className="text-white font-black uppercase text-[12px] group-hover:text-indigo-400 transition-colors">{item.quantity}x {item.products.name}</span>
+                                        <span className="text-[10px] text-gray-500 font-bold">VALOR UN: R$ {parseFloat(item.unit_price).toFixed(2)}</span>
                                     </div>
-                                    <span className="text-indigo-400 font-black">R$ {(item.quantity * item.unit_price).toFixed(2).replace('.', ',')}</span>
+                                    <span className="text-white font-black">R$ {(item.quantity * item.unit_price).toFixed(2).replace('.', ',')}</span>
                                 </div>
                             ))}
                         </div>
 
                         <div className="p-8 bg-white/5 space-y-6">
                             <div className="flex justify-between items-end border-t border-white/10 pt-4">
-                                <span className="text-gray-500 text-xs font-black uppercase tracking-widest leading-none mb-1">Total à Pagar:</span>
-                                <span className="text-4xl font-black text-white italic">R$ {parseFloat(receiptModal.order.total_amount).toFixed(2).replace('.', ',')}</span>
+                                <span className="text-gray-500 text-[10px] font-black uppercase tracking-[0.2em] leading-none mb-1">Total da Mesa:</span>
+                                <span className="text-5xl font-black text-white italic tracking-tighter">R$ {parseFloat(receiptModal.order.total_amount).toFixed(2).replace('.', ',')}</span>
                             </div>
 
                             <div className="grid grid-cols-1 gap-3">
                                 <button
-                                    onClick={(e) => { e.stopPropagation(); handleAddItems(receiptModal.table.id); }}
-                                    className="bg-indigo-600/20 text-indigo-400 py-4 rounded-2xl font-black text-xs uppercase border border-indigo-500/30 hover:bg-indigo-600/30"
+                                    onClick={() => { handleAddItems(receiptModal.table.id); setReceiptModal(null); }}
+                                    className="bg-indigo-600/10 text-indigo-400 py-4 rounded-2xl font-black text-[11px] uppercase border border-indigo-500/30 hover:bg-indigo-600 hover:text-white transition-all"
                                 >
-                                    + Continuar Lançando Itens
+                                    + Continuar Vendendo
                                 </button>
                                 <button
-                                    onClick={(e) => { e.stopPropagation(); handleFecharConta(); }}
-                                    className="bg-green-600 py-5 rounded-2xl font-black text-white shadow-xl shadow-green-600/20 hover:bg-green-500 uppercase tracking-widest text-sm transition-all active:scale-95"
+                                    onClick={() => handleFecharConta()}
+                                    className="bg-green-600 py-6 rounded-2xl font-black text-white shadow-2xl shadow-green-600/30 hover:bg-green-500 uppercase tracking-[0.2em] text-sm transition-all active:scale-95 flex items-center justify-center gap-3"
                                 >
-                                    Fechar e Confirmar Pagamento
+                                    <span>FECHAR CONTA AGORA</span>
+                                    <span className="text-xl">💰</span>
                                 </button>
                             </div>
                         </div>
