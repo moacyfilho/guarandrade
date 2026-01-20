@@ -64,14 +64,6 @@ export default function PDV() {
             if (orderError) throw orderError;
 
             // 2. Criar os itens do pedido (Order Items)
-            const orderItems = cart.map(c => ({
-                order_id: order.id,
-                product_id: curr.item.id, // Fixed: item is in c.item
-                quantity: c.qty,
-                unit_price: c.item.price
-            }));
-
-            // Fixed: corrected mapping variable name
             const itemsToInsert = cart.map(c => ({
                 order_id: order.id,
                 product_id: c.item.id,
@@ -162,7 +154,7 @@ export default function PDV() {
                                     key={table.id}
                                     onClick={() => setSelectedTable(table.id)}
                                     className={`py-1 text-[10px] uppercase font-bold rounded ${selectedTable === table.id ? 'bg-indigo-600 text-white' :
-                                            table.status === 'occupied' ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-gray-400'
+                                        table.status === 'occupied' ? 'bg-red-500/20 text-red-400' : 'bg-white/5 text-gray-400'
                                         }`}
                                 >
                                     M{table.id}
