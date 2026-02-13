@@ -216,8 +216,8 @@ export default function Mesas() {
                 {/* Tables Grid */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16, paddingBottom: 24 }}>
                     {tables.map((table, idx) => {
-                        const statusColor = table.status === 'occupied' ? '#ef4444' : table.status === 'dirty' ? '#f59e0b' : '#50A773';
-                        const statusBg = table.status === 'occupied' ? 'rgba(239,68,68,0.06)' : table.status === 'dirty' ? 'rgba(245,158,11,0.06)' : 'rgba(80,167,115,0.04)';
+                        const statusColor = table.status === 'occupied' ? 'var(--danger)' : table.status === 'dirty' ? 'var(--warning)' : 'var(--success)';
+                        const statusBg = table.status === 'occupied' ? 'rgba(234, 29, 44, 0.06)' : table.status === 'dirty' ? 'rgba(255, 184, 77, 0.06)' : 'rgba(80, 167, 115, 0.04)';
 
                         return (
                             <div
@@ -298,7 +298,7 @@ export default function Mesas() {
                                                 padding: '12px 0',
                                                 borderRadius: 12,
                                                 border: 'none',
-                                                background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                                                background: 'linear-gradient(135deg, var(--warning), #d97706)',
                                                 color: 'var(--text-primary)',
                                                 fontWeight: 800,
                                                 fontSize: 11,

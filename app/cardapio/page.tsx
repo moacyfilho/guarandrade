@@ -144,8 +144,8 @@ export default function Cardapio() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 16, paddingBottom: 24 }}>
                     {filtered.map((item, idx) => (
                         <div key={item.id} className="animate-fade-in" style={{
-                            background: item.status === 'Ativo' ? 'var(--bg-card)' : 'rgba(239,68,68,0.03)',
-                            border: `1px solid ${item.status === 'Ativo' ? 'var(--border-color)' : 'rgba(239,68,68,0.1)'}`,
+                            background: item.status === 'Ativo' ? 'var(--bg-card)' : 'rgba(234, 29, 44, 0.03)',
+                            border: `1px solid ${item.status === 'Ativo' ? 'var(--border-color)' : 'rgba(234, 29, 44, 0.1)'}`,
                             borderRadius: 20,
                             padding: 24,
                             transition: 'all 0.2s ease',
@@ -191,7 +191,7 @@ export default function Cardapio() {
                                 <button onClick={() => openEdit(item)} className="btn btn-ghost" style={{ flex: 1, fontSize: 10, padding: '10px 0' }}>
                                     ✏️ Editar
                                 </button>
-                                <button onClick={() => handleDelete(item.id)} className="btn btn-ghost" style={{ fontSize: 10, padding: '10px 12px', color: '#f87171', borderColor: 'rgba(239,68,68,0.2)' }}>
+                                <button onClick={() => handleDelete(item.id)} className="btn btn-ghost" style={{ fontSize: 10, padding: '10px 12px', color: 'var(--danger)', borderColor: 'rgba(234, 29, 44, 0.2)' }}>
                                     🗑️
                                 </button>
                             </div>

@@ -7,27 +7,27 @@ import { supabase } from '@/lib/supabase';
 const statusConfig: Record<string, { label: string; btn: string; nextLabel: string; color: string; bg: string; border: string }> = {
     fila: {
         label: 'Na Fila',
-        btn: 'linear-gradient(135deg, #f59e0b, #d97706)',
+        btn: 'linear-gradient(135deg, var(--warning), #d97706)',
         nextLabel: '🔥 Iniciar Preparo',
-        color: '#fbbf24',
-        bg: 'rgba(245,158,11,0.08)',
-        border: 'rgba(245,158,11,0.2)',
+        color: 'var(--warning)',
+        bg: 'rgba(255, 184, 77, 0.05)',
+        border: 'rgba(255, 184, 77, 0.2)',
     },
     preparando: {
         label: 'Preparando',
-        btn: 'linear-gradient(135deg, #50A773, #3D8B5E)',
+        btn: 'linear-gradient(135deg, var(--success), #3D8B5E)',
         nextLabel: '✅ Marcar Pronto',
-        color: '#6FCF97',
-        bg: 'rgba(80,167,115,0.08)',
-        border: 'rgba(80,167,115,0.2)',
+        color: 'var(--success)',
+        bg: 'rgba(80, 167, 115, 0.05)',
+        border: 'rgba(80, 167, 115, 0.2)',
     },
     pronto: {
         label: 'Pronto',
-        btn: 'linear-gradient(135deg, #EA1D2C, #C8101E)',
+        btn: 'linear-gradient(135deg, var(--primary), var(--primary-glow))',
         nextLabel: '📦 Finalizar',
-        color: 'var(--price-color)',
-        bg: 'rgba(234,29,44,0.08)',
-        border: 'rgba(234,29,44,0.2)',
+        color: 'var(--primary)',
+        bg: 'rgba(234, 29, 44, 0.05)',
+        border: 'rgba(234, 29, 44, 0.2)',
     },
 };
 
@@ -129,7 +129,7 @@ export default function Cozinha() {
                             return (
                                 <div key={order.id} className="animate-fade-in" style={{
                                     background: 'var(--bg-card)',
-                                    border: `1px solid ${isUrgent && order.status !== 'pronto' ? 'rgba(239,68,68,0.3)' : cfg.border}`,
+                                    border: `1px solid ${isUrgent && order.status !== 'pronto' ? 'rgba(234, 29, 44, 0.3)' : cfg.border}`,
                                     borderRadius: 20,
                                     overflow: 'hidden',
                                     animationDelay: `${idx * 0.05}s`,
@@ -168,7 +168,7 @@ export default function Cozinha() {
                                             <span style={{
                                                 fontSize: 11,
                                                 fontWeight: 700,
-                                                color: isUrgent && order.status !== 'pronto' ? '#f87171' : 'rgba(255,255,255,0.3)',
+                                                color: isUrgent && order.status !== 'pronto' ? 'var(--price-color)' : 'var(--text-muted)',
                                             }}>
                                                 ⏱ {timeSince}
                                             </span>
