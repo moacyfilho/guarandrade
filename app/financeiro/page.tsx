@@ -363,17 +363,17 @@ export default function Financeiro() {
                                 <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Faturamento PDV</p>
                                 <p style={{ fontSize: 28, fontWeight: 900, color: 'var(--price-color)', letterSpacing: '-0.03em' }}>R$ {stats.revenue.toFixed(2).replace('.', ',')}</p>
                             </div>
-                            <div style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.08), rgba(239,68,68,0.02))', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 20, padding: 24 }}>
+                            <div style={{ background: 'linear-gradient(135deg, rgba(234, 29, 44, 0.08), rgba(234, 29, 44, 0.02))', border: '1px solid rgba(234, 29, 44, 0.15)', borderRadius: 20, padding: 24 }}>
                                 <div style={{ fontSize: 28, marginBottom: 8 }}>🔻</div>
                                 <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Contas a Pagar</p>
-                                <p style={{ fontSize: 28, fontWeight: 900, color: '#f87171', letterSpacing: '-0.03em' }}>
+                                <p style={{ fontSize: 28, fontWeight: 900, color: 'var(--danger)', letterSpacing: '-0.03em' }}>
                                     R$ {financialTransactions.filter(t => t.type === 'expense' && t.status === 'pending').reduce((acc, curr) => acc + Number(curr.amount), 0).toFixed(2).replace('.', ',')}
                                 </p>
                             </div>
-                            <div style={{ background: 'linear-gradient(135deg, rgba(80,167,115,0.08), rgba(80,167,115,0.02))', border: '1px solid rgba(80,167,115,0.15)', borderRadius: 20, padding: 24 }}>
+                            <div style={{ background: 'linear-gradient(135deg, rgba(80, 167, 115, 0.08), rgba(80, 167, 115, 0.02))', border: '1px solid rgba(80, 167, 115, 0.15)', borderRadius: 20, padding: 24 }}>
                                 <div style={{ fontSize: 28, marginBottom: 8 }}>⬆️</div>
                                 <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Contas a Receber</p>
-                                <p style={{ fontSize: 28, fontWeight: 900, color: '#6FCF97', letterSpacing: '-0.03em' }}>
+                                <p style={{ fontSize: 28, fontWeight: 900, color: 'var(--success)', letterSpacing: '-0.03em' }}>
                                     R$ {financialTransactions.filter(t => t.type === 'income' && t.status === 'pending').reduce((acc, curr) => acc + Number(curr.amount), 0).toFixed(2).replace('.', ',')}
                                 </p>
                             </div>
