@@ -78,7 +78,7 @@ function PDVContent() {
 
             if (orderError) throw orderError;
 
-            const itemsToInsert = cart.map(c => ({
+            const orderItems = cart.map(c => ({
                 order_id: order.id,
                 product_id: c.item.id,
                 quantity: c.qty,
@@ -87,7 +87,7 @@ function PDVContent() {
 
             const { error: itemsError } = await supabase
                 .from('order_items')
-                .insert(itemsToInsert);
+                .insert(orderItems);
 
             if (itemsError) {
                 console.error('Error inserting items, rolling back order:', order.id);
