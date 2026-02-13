@@ -7,10 +7,10 @@ import { supabase } from '@/lib/supabase';
 
 export default function Home() {
     const [stats, setStats] = useState([
-        { label: 'Pedidos Hoje', value: '0', icon: '📝', color: 'text-blue-400' },
-        { label: 'Mesas Ativas', value: '0/0', icon: '🍽️', color: 'text-green-400' },
-        { label: 'Faturamento de Hoje', value: 'R$ 0,00', icon: '💰', color: 'text-purple-400' },
-        { label: 'Tempo Médio', value: '-- min', icon: '⏱️', color: 'text-orange-400' },
+        { label: 'Pedidos Hoje', value: '0', icon: '📝', color: '#60a5fa', gradient: 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.03))' },
+        { label: 'Mesas Ativas', value: '0/0', icon: '🍽️', color: '#6FCF97', gradient: 'linear-gradient(135deg, rgba(80,167,115,0.12), rgba(80,167,115,0.03))' },
+        { label: 'Faturamento', value: 'R$ 0,00', icon: '💰', color: '#c084fc', gradient: 'linear-gradient(135deg, rgba(192,132,252,0.12), rgba(192,132,252,0.03))' },
+        { label: 'Tempo Médio', value: '-- min', icon: '⏱️', color: '#fb923c', gradient: 'linear-gradient(135deg, rgba(251,146,60,0.12), rgba(251,146,60,0.03))' },
     ]);
     const [tables, setTables] = useState<any[]>([]);
     const [recentOrders, setRecentOrders] = useState<any[]>([]);
@@ -19,13 +19,11 @@ export default function Home() {
     const fetchData = async () => {
         const today = new Date().toISOString().split('T')[0];
 
-        // 1. Fetch Today's Orders Count
         const { count: ordersCount } = await supabase
             .from('orders')
             .select('*', { count: 'exact', head: true })
             .gte('created_at', today);
 
-        // 2. Fetch Active Tables
         const { data: tablesData } = await supabase
             .from('tables')
             .select('*')
@@ -34,31 +32,25 @@ export default function Home() {
         const activeTablesCount = tablesData?.filter(t => t.status === 'occupied').length || 0;
         const totalTablesCount = tablesData?.length || 0;
 
-        // 3. Fetch Today's Revenue
         const { data: revenueData } = await supabase
             .from('orders')
             .select('total_amount')
             .gte('created_at', today)
             .neq('status', 'cancelado');
-        // Normally we'd filter by 'finalizado' but let's show total valid orders for now
 
         const totalRevenue = revenueData?.reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0) || 0;
 
-        // 4. Fetch Recent Orders
         const { data: ordersData } = await supabase
             .from('orders')
-            .select(`
-                *,
-                tables (name)
-            `)
+            .select(`*, tables (name)`)
             .order('created_at', { ascending: false })
-            .limit(3);
+            .limit(5);
 
         setStats([
-            { label: 'Pedidos Hoje', value: String(ordersCount || 0), icon: '📝', color: 'text-blue-400' },
-            { label: 'Mesas Ativas', value: `${activeTablesCount}/${totalTablesCount}`, icon: '🍽️', color: 'text-green-400' },
-            { label: 'Faturamento de Hoje', value: `R$ ${totalRevenue.toFixed(2).replace('.', ',')}`, icon: '💰', color: 'text-purple-400' },
-            { label: 'Tempo Médio', value: '18 min', icon: '⏱️', color: 'text-orange-400' }, // Hardcoded as placeholder until we have logic
+            { label: 'Pedidos Hoje', value: String(ordersCount || 0), icon: '📝', color: '#60a5fa', gradient: 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.03))' },
+            { label: 'Mesas Ativas', value: `${activeTablesCount}/${totalTablesCount}`, icon: '🍽️', color: '#6FCF97', gradient: 'linear-gradient(135deg, rgba(80,167,115,0.12), rgba(80,167,115,0.03))' },
+            { label: 'Faturamento', value: `R$ ${totalRevenue.toFixed(2).replace('.', ',')}`, icon: '💰', color: '#c084fc', gradient: 'linear-gradient(135deg, rgba(192,132,252,0.12), rgba(192,132,252,0.03))' },
+            { label: 'Tempo Médio', value: '18 min', icon: '⏱️', color: '#fb923c', gradient: 'linear-gradient(135deg, rgba(251,146,60,0.12), rgba(251,146,60,0.03))' },
         ]);
 
         if (tablesData) setTables(tablesData);
@@ -68,158 +60,179 @@ export default function Home() {
 
     useEffect(() => {
         fetchData();
-
-        // Real-time updates
         const channel = supabase
             .channel('dashboard_updates')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchData())
             .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => fetchData())
             .subscribe();
-
-        return () => {
-            supabase.removeChannel(channel);
-        };
+        return () => { supabase.removeChannel(channel); };
     }, []);
 
     if (loading) return (
-        <div className="flex h-screen items-center justify-center bg-black">
-            <div className="animate-pulse flex flex-col items-center gap-4">
-                <div className="w-12 h-12 bg-indigo-600 rounded-xl"></div>
-                <p className="font-bold tracking-widest uppercase text-xs text-white">Guarandrade...</p>
+        <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-page)' }}>
+            <div className="animate-pulse" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                <div style={{ width: 48, height: 48, background: 'linear-gradient(135deg, #EA1D2C, #C8101E)', borderRadius: 16 }} />
+                <p style={{ fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: 10, color: 'var(--text-secondary)' }}>Carregando...</p>
             </div>
         </div>
     );
 
     return (
-        <div className="flex h-screen p-4 gap-4">
+        <div style={{ display: 'flex', height: '100vh', padding: 16, gap: 16 }}>
             <Sidebar />
 
-            {/* Main Content */}
-            <main className="flex-1 overflow-y-auto pr-2 space-y-6">
+            <main style={{ flex: 1, overflowY: 'auto', paddingRight: 8 }}>
                 {/* Header */}
-                <header className="flex justify-between items-center py-2">
+                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', marginBottom: 24 }}>
                     <div>
-                        <h1 className="text-3xl font-bold text-white mb-1">Boas-vindas, Admin! 👋</h1>
-                        <p className="text-gray-400">Aqui está o resumo do que está acontecendo no Guarandrade agora.</p>
+                        <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
+                            Boas-vindas, Admin! 👋
+                        </h1>
+                        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4, fontWeight: 500 }}>
+                            Resumo do que está acontecendo no Guarandrade agora.
+                        </p>
                     </div>
-                    <div className="flex gap-3">
-                        <Link href="/pdv" className="glass px-4 py-2 text-sm font-medium hover:bg-white/10 text-white">Novo Pedido</Link>
-                        <div className="glass w-10 h-10 flex items-center justify-center cursor-pointer text-white">🔔</div>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <Link href="/pdv" className="btn btn-primary" style={{ fontSize: 11 }}>
+                            + Novo Pedido
+                        </Link>
                     </div>
                 </header>
 
-                {/* Stats Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Stats */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 32 }}>
                     {stats.map((stat, i) => (
-                        <div key={i} className="glass p-5 animate-fade-in" style={{ animationDelay: `${i * 0.1}s` }}>
-                            <div className="flex justify-between items-start mb-4">
-                                <div className="text-2xl">{stat.icon}</div>
-                                <div className={`text-xs font-bold uppercase tracking-wider ${stat.color}`}>Real-time</div>
+                        <div key={i} className="animate-fade-in" style={{
+                            background: stat.gradient,
+                            border: '1px solid var(--border-subtle)',
+                            borderRadius: 20,
+                            padding: 24,
+                            animationDelay: `${i * 0.08}s`,
+                            opacity: 0,
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                                <div style={{ fontSize: 28 }}>{stat.icon}</div>
+                                <span style={{ fontSize: 9, fontWeight: 700, color: stat.color, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.8 }}>Tempo real</span>
                             </div>
-                            <h3 className="text-3xl font-bold text-white mb-1">{stat.value}</h3>
-                            <p className="text-gray-400 text-sm">{stat.label}</p>
+                            <h3 style={{ fontSize: 28, fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.03em', marginBottom: 4 }}>{stat.value}</h3>
+                            <p style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>{stat.label}</p>
                         </div>
                     ))}
                 </div>
 
-                {/* Tables Grid */}
-                <section className="space-y-4">
-                    <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-bold text-white">Status das Mesas</h2>
-                        <div className="flex gap-2 text-xs">
-                            <span className="flex items-center gap-1 text-gray-400"><span className="w-2 h-2 rounded-full bg-green-500"></span> Livre</span>
-                            <span className="flex items-center gap-1 text-gray-400"><span className="w-2 h-2 rounded-full bg-red-500"></span> Ocupada</span>
-                            <span className="flex items-center gap-1 text-gray-400"><span className="w-2 h-2 rounded-full bg-yellow-500"></span> Limpeza</span>
+                {/* Tables Overview */}
+                <section style={{ marginBottom: 32 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                        <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>Status das Mesas</h2>
+                        <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-muted)' }}>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="status-dot status-dot-success" /> Livre</span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="status-dot status-dot-danger" /> Ocupada</span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="status-dot status-dot-warning" /> Limpeza</span>
                         </div>
                     </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 12 }}>
                         {tables.map((table) => (
                             <Link
                                 key={table.id}
                                 href="/mesas"
-                                className={`glass p-4 text-center cursor-pointer hover:scale-105 active:scale-95 border-t-4 ${table.status === 'occupied' ? 'border-t-red-500' :
-                                    table.status === 'dirty' ? 'border-t-yellow-500' : 'border-t-green-500'
-                                    }`}
+                                style={{
+                                    textDecoration: 'none',
+                                    background: 'var(--bg-card)',
+                                    border: '1px solid var(--border-subtle)',
+                                    borderTop: `3px solid ${table.status === 'occupied' ? '#ef4444' : table.status === 'dirty' ? '#f59e0b' : '#50A773'}`,
+                                    borderRadius: 16,
+                                    padding: '16px 12px',
+                                    textAlign: 'center' as const,
+                                    transition: 'all 0.2s ease',
+                                    cursor: 'pointer',
+                                }}
+                                onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = 'var(--border-hover)'; }}
+                                onMouseOut={(e) => { e.currentTarget.style.transform = ''; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
                             >
-                                <div className="text-2xl mb-1 text-white">🪑</div>
-                                <div className="font-bold text-lg mb-1 text-white">{table.name}</div>
+                                <div style={{ fontSize: 22, marginBottom: 4 }}>🪑</div>
+                                <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text-primary)', marginBottom: 4 }}>{table.name}</div>
                                 {table.status === 'occupied' ? (
-                                    <span className="bg-red-500/20 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-bold uppercase">
-                                        Ocupada
-                                    </span>
+                                    <span className="badge badge-danger">{`R$ ${parseFloat(table.total_amount || 0).toFixed(0)}`}</span>
                                 ) : (
-                                    <span className="text-gray-500 text-[10px] uppercase font-bold">{table.status === 'dirty' ? 'Limpeza' : 'Livre'}</span>
+                                    <span style={{ color: 'var(--text-faint)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase' as const }}>
+                                        {table.status === 'dirty' ? 'Limpeza' : 'Livre'}
+                                    </span>
                                 )}
                             </Link>
                         ))}
                     </div>
                 </section>
 
-                {/* Bottom Section */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pb-4">
+                {/* Recent Orders + Quick Actions */}
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, paddingBottom: 24 }}>
                     {/* Recent Orders */}
-                    <div className="glass p-5 lg:col-span-2">
-                        <h3 className="text-lg font-bold mb-4 text-white">Pedidos Recentes</h3>
-                        <div className="space-y-3">
+                    <div className="glass" style={{ padding: 24 }}>
+                        <h3 style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 16, letterSpacing: '-0.01em' }}>Pedidos Recentes</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             {recentOrders.map((order) => (
-                                <div key={order.id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/5">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-indigo-600/20 flex items-center justify-center text-white">🍔</div>
+                                <div key={order.id} style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '10px 12px',
+                                    borderRadius: 12,
+                                    background: 'var(--bg-card)',
+                                    border: '1px solid var(--border-subtle)',
+                                    transition: 'background 0.15s ease',
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                        <div style={{
+                                            width: 38,
+                                            height: 38,
+                                            borderRadius: 12,
+                                            background: 'rgba(234,29,44,0.1)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: 18,
+                                        }}>🍔</div>
                                         <div>
-                                            <p className="font-semibold text-sm text-white">{order.tables?.name || 'Mesa ?'}</p>
-                                            <p className="text-xs text-gray-400">
+                                            <p style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>{order.tables?.name || 'Balcão 🛍️'}</p>
+                                            <p style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>
                                                 {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <p className="font-bold text-sm text-white">R$ {Number(order.total_amount).toFixed(2).replace('.', ',')}</p>
-                                        <p className={`text-[10px] font-bold uppercase ${order.status === 'fila' ? 'text-blue-400' :
-                                            order.status === 'preparando' ? 'text-yellow-400' :
-                                                order.status === 'pronto' ? 'text-green-400' : 'text-gray-400'
-                                            }`}>{order.status}</p>
+                                    <div style={{ textAlign: 'right' as const }}>
+                                        <p style={{ fontWeight: 800, fontSize: 13, color: 'var(--text-primary)' }}>R$ {Number(order.total_amount).toFixed(2).replace('.', ',')}</p>
+                                        <span className={`badge ${order.status === 'fila' ? 'badge-info' :
+                                            order.status === 'preparando' ? 'badge-warning' :
+                                                order.status === 'pronto' ? 'badge-success' : 'badge-info'
+                                            }`}>{order.status}</span>
                                     </div>
                                 </div>
                             ))}
                             {recentOrders.length === 0 && (
-                                <p className="text-center py-10 text-gray-500 text-sm tracking-widest uppercase">Nenhum pedido recente</p>
+                                <p style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-faint)', fontSize: 12, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' as const }}>
+                                    Nenhum pedido recente
+                                </p>
                             )}
                         </div>
                     </div>
 
-                    {/* Quick Actions / Voice Order */}
-                    <div className="glass p-5 bg-gradient-to-br from-indigo-600/10 to-transparent relative overflow-hidden">
-                        <div className="absolute -top-10 -right-10 w-32 h-32 bg-indigo-600/20 blur-3xl rounded-full animate-pulse"></div>
-                        <h3 className="text-lg font-bold mb-4 text-white">Pedir por Voz 🎙️</h3>
-                        <p className="text-sm text-gray-400 mb-6 font-medium">Fale algo como: "Mesa 5, um X-Tudo e uma Coca"</p>
-
-                        <div className="flex flex-col items-center justify-center gap-4 py-4">
-                            <button
-                                onMouseDown={() => {
-                                    const recognition = new (window as any).webkitSpeechRecognition();
-                                    recognition.lang = 'pt-BR';
-                                    recognition.start();
-                                    (window as any).recognition = recognition;
-                                    document.getElementById('mic-status')?.classList.remove('hidden');
-                                }}
-                                onMouseUp={() => {
-                                    const recognition = (window as any).recognition;
-                                    if (recognition) {
-                                        recognition.stop();
-                                        recognition.onresult = (event: any) => {
-                                            const text = event.results[0][0].transcript;
-                                            alert(`Entendi seu pedido: "${text}"\n\nProcessando inteligência de pedidos...`);
-                                        };
-                                        document.getElementById('mic-status')?.classList.add('hidden');
-                                    }
-                                }}
-                                className="w-20 h-20 rounded-full bg-indigo-600 flex items-center justify-center text-3xl shadow-xl shadow-indigo-500/40 cursor-pointer hover:scale-110 active:scale-95 transition-all text-white relative z-10"
-                            >
-                                🎤
-                            </button>
-                            <span id="mic-status" className="hidden text-xs font-bold text-indigo-400 uppercase tracking-widest animate-pulse">Ouvindo seu pedido...</span>
-                        </div>
+                    {/* Quick Actions */}
+                    <div className="glass" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <h3 style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4, letterSpacing: '-0.01em' }}>Ações Rápidas</h3>
+                        <Link href="/pdv" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '14px 0' }}>
+                            🛒 Novo Pedido (PDV)
+                        </Link>
+                        <Link href="/cozinha" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', padding: '14px 0' }}>
+                            🍳 Ver Cozinha
+                        </Link>
+                        <Link href="/mesas" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', padding: '14px 0' }}>
+                            🍽️ Gestão de Mesas
+                        </Link>
+                        <Link href="/financeiro" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', padding: '14px 0' }}>
+                            💰 Financeiro
+                        </Link>
+                        <Link href="/cardapio" className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', padding: '14px 0' }}>
+                            📜 Editar Cardápio
+                        </Link>
                     </div>
                 </div>
             </main>

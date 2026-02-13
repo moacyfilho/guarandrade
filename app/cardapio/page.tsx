@@ -5,288 +5,282 @@ import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
 
 export default function Cardapio() {
-    const [items, setItems] = useState<any[]>([]);
     const [categories, setCategories] = useState<any[]>([]);
-    const [activeFilter, setActiveFilter] = useState({ id: 'all', name: 'Todos' });
+    const [menuItems, setMenuItems] = useState<any[]>([]);
+    const [activeFilter, setActiveFilter] = useState('all');
     const [loading, setLoading] = useState(true);
-
-    // Modal State
-    const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingItem, setEditingItem] = useState<any>(null);
-    const [formData, setFormData] = useState({
-        name: '',
-        description: '',
-        price: '',
-        category_id: '',
-        status: 'Ativo'
-    });
+    const [modalOpen, setModalOpen] = useState(false);
+    const [editItem, setEditItem] = useState<any>(null);
+    const [formData, setFormData] = useState({ name: '', price: '', category_id: '', status: 'Ativo', stock_quantity: 0 });
+    const [searchTerm, setSearchTerm] = useState('');
 
     const fetchData = async () => {
-        const [productsRes, categoriesRes] = await Promise.all([
-            supabase.from('products').select('*').order('name', { ascending: true }),
-            supabase.from('categories').select('*').order('name')
+        setLoading(true);
+        const [catRes, prodRes] = await Promise.all([
+            supabase.from('categories').select('*').order('name'),
+            supabase.from('products').select('*, categories(name, icon)').order('name'),
         ]);
-
-        if (productsRes.data) setItems(productsRes.data);
-        if (categoriesRes.data) {
-            setCategories(categoriesRes.data);
-            if (categoriesRes.data.length > 0 && !formData.category_id) {
-                setFormData(prev => ({ ...prev, category_id: categoriesRes.data[0].id }));
-            }
-        }
+        if (catRes.data) setCategories(catRes.data);
+        if (prodRes.data) setMenuItems(prodRes.data);
         setLoading(false);
     };
 
-    useEffect(() => {
-        fetchData();
-    }, []);
+    useEffect(() => { fetchData(); }, []);
 
-    const toggleStatus = async (id: string, currentStatus: string) => {
-        const nextStatus = currentStatus === 'Ativo' ? 'Pausado' : 'Ativo';
-        const { error } = await supabase.from('products').update({ status: nextStatus }).eq('id', id);
-        if (error) {
-            alert('Erro ao atualizar status: ' + error.message);
-        } else {
-            fetchData();
+    const handleSave = async () => {
+        if (!formData.name || !formData.price || !formData.category_id) {
+            alert('Preencha todos os campos obrigatórios.');
+            return;
         }
+        const payload = {
+            name: formData.name,
+            price: parseFloat(formData.price),
+            category_id: formData.category_id,
+            status: formData.status,
+            stock_quantity: formData.stock_quantity,
+        };
+
+        if (editItem) {
+            const { error } = await supabase.from('products').update(payload).eq('id', editItem.id);
+            if (error) { alert('Erro: ' + error.message); return; }
+        } else {
+            const { error } = await supabase.from('products').insert(payload);
+            if (error) { alert('Erro: ' + error.message); return; }
+        }
+        setModalOpen(false);
+        setEditItem(null);
+        setFormData({ name: '', price: '', category_id: '', status: 'Ativo', stock_quantity: 0 });
+        fetchData();
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('Tem certeza que deseja excluir este produto?')) return;
-        const { error } = await supabase.from('products').delete().eq('id', id);
-        if (error) {
-            alert('Erro ao excluir: ' + error.message);
-        } else {
-            fetchData();
-        }
+        if (!confirm('Tem certeza que quer remover este item?')) return;
+        await supabase.from('products').delete().eq('id', id);
+        fetchData();
     };
 
-    const handleOpenModal = (item: any = null) => {
-        if (item) {
-            setEditingItem(item);
-            setFormData({
-                name: item.name,
-                description: item.description || '',
-                price: item.price.toString().replace('.', ','),
-                category_id: item.category_id,
-                status: item.status
-            });
-        } else {
-            setEditingItem(null);
-            setFormData({
-                name: '',
-                description: '',
-                price: '',
-                category_id: categories[0]?.id || '',
-                status: 'Ativo'
-            });
-        }
-        setIsModalOpen(true);
+    const openEdit = (item: any) => {
+        setEditItem(item);
+        setFormData({
+            name: item.name,
+            price: item.price.toString(),
+            category_id: item.category_id,
+            status: item.status,
+            stock_quantity: item.stock_quantity || 0,
+        });
+        setModalOpen(true);
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        const priceClean = formData.price.replace(',', '.');
-        const payload = {
-            name: formData.name,
-            description: formData.description,
-            price: parseFloat(priceClean),
-            category_id: formData.category_id,
-            status: formData.status
-        };
-
-        if (isNaN(payload.price)) {
-            alert('Por favor, insira um preço válido.');
-            return;
-        }
-
-        let error;
-        if (editingItem) {
-            const res = await supabase.from('products').update(payload).eq('id', editingItem.id);
-            error = res.error;
-        } else {
-            const res = await supabase.from('products').insert([payload]);
-            error = res.error;
-        }
-
-        if (error) {
-            alert('Erro ao salvar: ' + error.message);
-        } else {
-            setIsModalOpen(false);
-            fetchData();
-        }
+    const openNew = () => {
+        setEditItem(null);
+        setFormData({ name: '', price: '', category_id: '', status: 'Ativo', stock_quantity: 0 });
+        setModalOpen(true);
     };
 
-    const getProductIcon = (item: any) => {
-        const cat = categories.find(c => c.id === item.category_id);
-        return cat?.icon || '🍔';
-    };
+    const filtered = menuItems.filter(i => {
+        const matchCategory = activeFilter === 'all' || i.category_id === activeFilter;
+        const matchSearch = i.name.toLowerCase().includes(searchTerm.toLowerCase());
+        return matchCategory && matchSearch;
+    });
+
+    const activeCount = menuItems.filter(i => i.status === 'Ativo').length;
+    const inactiveCount = menuItems.filter(i => i.status !== 'Ativo').length;
 
     if (loading) return (
-        <div className="flex h-screen items-center justify-center bg-[#050505]">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-indigo-600"></div>
+        <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-page)' }}>
+            <div className="animate-pulse" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                <div style={{ fontSize: 40 }}>📜</div>
+                <p style={{ fontWeight: 800, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-secondary)' }}>Carregando cardápio...</p>
+            </div>
         </div>
     );
 
     return (
-        <div className="flex h-screen p-4 gap-4 bg-[#050505] overflow-hidden">
+        <div style={{ display: 'flex', height: '100vh', padding: 16, gap: 16 }}>
             <Sidebar />
-
-            <main className="flex-1 overflow-y-auto pr-2 space-y-6">
-                <header className="flex justify-between items-center py-2">
+            <main style={{ flex: 1, overflowY: 'auto', paddingRight: 8 }}>
+                {/* Header */}
+                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', marginBottom: 24 }}>
                     <div>
-                        <h1 className="text-2xl font-bold text-white mb-1">Cardápio Digital 📜</h1>
-                        <p className="text-sm text-gray-400">Gerencie seus produtos e preços.</p>
+                        <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
+                            Cardápio 📜
+                        </h1>
+                        <p style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>
+                            {activeCount} ativos · {inactiveCount} inativos · {categories.length} categorias
+                        </p>
                     </div>
-                    <button
-                        onClick={() => handleOpenModal()}
-                        className="bg-indigo-600 px-5 py-2.5 rounded-xl font-bold text-white hover:bg-indigo-500 shadow-lg text-sm transition-all"
-                    >
-                        + Adicionar Item
+                    <button onClick={openNew} className="btn btn-primary">
+                        + Novo Item
                     </button>
                 </header>
 
-                <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide">
-                    <button
-                        onClick={() => setActiveFilter({ id: 'all', name: 'Todos' })}
-                        className={`px-5 py-2 rounded-xl text-xs font-bold uppercase transition-all ${activeFilter.id === 'all' ? 'bg-white text-black' : 'glass text-gray-500 hover:text-white'}`}
-                    >
-                        Todos
-                    </button>
-                    {categories.map(cat => (
+                {/* Filters */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <input
+                        type="text"
+                        placeholder="🔍 Buscar no cardápio..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        style={{ padding: '10px 16px', borderRadius: 12, fontSize: 13, fontWeight: 500, width: 260 }}
+                    />
+                    <div style={{ display: 'flex', gap: 6, overflowX: 'auto' }}>
                         <button
-                            key={cat.id}
-                            onClick={() => setActiveFilter(cat)}
-                            className={`px-5 py-2 rounded-xl text-xs font-bold uppercase flex items-center gap-2 transition-all ${activeFilter.id === cat.id ? 'bg-white text-black shadow-lg' : 'glass text-gray-500 hover:text-white'}`}
-                        >
-                            <span>{cat.icon}</span>
-                            {cat.name}
-                        </button>
-                    ))}
+                            onClick={() => setActiveFilter('all')}
+                            className={`btn ${activeFilter === 'all' ? 'btn-primary' : 'btn-ghost'}`}
+                            style={{ fontSize: 10, padding: '8px 14px' }}
+                        >Todos</button>
+                        {categories.map(cat => (
+                            <button
+                                key={cat.id}
+                                onClick={() => setActiveFilter(cat.id)}
+                                className={`btn ${activeFilter === cat.id ? 'btn-primary' : 'btn-ghost'}`}
+                                style={{ fontSize: 10, padding: '8px 14px', whiteSpace: 'nowrap' }}
+                            >{cat.icon} {cat.name}</button>
+                        ))}
+                    </div>
                 </div>
 
-                <div className="glass overflow-hidden border border-white/5 rounded-2xl bg-white/5">
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="bg-white/5 text-gray-500 text-[10px] uppercase font-bold tracking-wider">
-                                <th className="p-4">Produto</th>
-                                <th className="p-4">Preço</th>
-                                <th className="p-4">Status</th>
-                                <th className="p-4 text-center">Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5">
-                            {items.filter(i => activeFilter.id === 'all' || i.category_id === activeFilter.id).map((item) => (
-                                <tr key={item.id} className="hover:bg-white/5 transition-colors group">
-                                    <td className="p-4">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">
-                                                {getProductIcon(item)}
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-white text-sm">{item.name}</p>
-                                                <p className="text-xs text-gray-500 line-clamp-1 max-w-xs">{item.description}</p>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="p-4 font-bold text-indigo-400 whitespace-nowrap">
-                                        R$ {parseFloat(item.price).toFixed(2).replace('.', ',')}
-                                    </td>
-                                    <td className="p-4">
-                                        <button
-                                            onClick={() => toggleStatus(item.id, item.status)}
-                                            className={`text-[9px] font-bold uppercase px-3 py-1 rounded-full transition-all border ${item.status === 'Ativo' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}
-                                        >
-                                            {item.status}
-                                        </button>
-                                    </td>
-                                    <td className="p-4 text-center">
-                                        <div className="flex justify-center gap-3">
-                                            <button onClick={() => handleOpenModal(item)} className="text-gray-400 hover:text-white transition-colors">✏️</button>
-                                            <button onClick={() => handleDelete(item.id)} className="text-gray-400 hover:text-red-500 transition-colors">🗑️</button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                {/* Items Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 16, paddingBottom: 24 }}>
+                    {filtered.map((item, idx) => (
+                        <div key={item.id} className="animate-fade-in" style={{
+                            background: item.status === 'Ativo' ? 'var(--bg-card)' : 'rgba(239,68,68,0.03)',
+                            border: `1px solid ${item.status === 'Ativo' ? 'var(--border-color)' : 'rgba(239,68,68,0.1)'}`,
+                            borderRadius: 20,
+                            padding: 24,
+                            transition: 'all 0.2s ease',
+                            animationDelay: `${idx * 0.03}s`,
+                            opacity: 0,
+                            position: 'relative',
+                        }}
+                        >
+                            {/* Status badge */}
+                            <div style={{ position: 'absolute', top: 12, right: 12 }}>
+                                <span className={`badge ${item.status === 'Ativo' ? 'badge-success' : 'badge-danger'}`} style={{ fontSize: 8 }}>
+                                    {item.status}
+                                </span>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                                <div style={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 14,
+                                    background: 'rgba(234,29,44,0.08)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: 24,
+                                }}>
+                                    {item.categories?.icon || '🍔'}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <h4 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</h4>
+                                    <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{item.categories?.name}</p>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16 }}>
+                                <p style={{ fontSize: 22, fontWeight: 900, color: 'var(--price-color)', letterSpacing: '-0.03em' }}>R$ {parseFloat(item.price).toFixed(2).replace('.', ',')}</p>
+                                <span className={`badge ${(item.stock_quantity || 0) < 5 ? 'badge-danger' : 'badge-info'}`}>
+                                    Est: {item.stock_quantity || 0}
+                                </span>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <button onClick={() => openEdit(item)} className="btn btn-ghost" style={{ flex: 1, fontSize: 10, padding: '10px 0' }}>
+                                    ✏️ Editar
+                                </button>
+                                <button onClick={() => handleDelete(item.id)} className="btn btn-ghost" style={{ fontSize: 10, padding: '10px 12px', color: '#f87171', borderColor: 'rgba(239,68,68,0.2)' }}>
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </main>
 
-            {/* MODAL REFEITO - CORREÇÃO DE TAMANHO E SOBREPOSIÇÃO */}
-            {isModalOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-                    <div className="glass w-full max-w-md bg-[#121212] overflow-hidden border border-white/10 shadow-2xl rounded-2xl animate-fade-in">
-                        <div className="p-6 border-b border-white/5 flex justify-between items-center">
-                            <h2 className="text-xl font-bold text-white uppercase tracking-tight">
-                                {editingItem ? 'Editar Produto' : 'Novo Produto'}
-                            </h2>
-                            <button onClick={() => setIsModalOpen(false)} className="text-gray-500 hover:text-white text-xl">✕</button>
+            {/* Add/Edit Modal */}
+            {modalOpen && (
+                <div className="modal-overlay">
+                    <div className="modal-content animate-fade-in-scale" style={{ maxWidth: 480 }}>
+                        <div style={{ padding: 24, borderBottom: '1px solid var(--border-subtle)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>{editItem ? 'Editar Item' : 'Novo Item'}</h2>
+                                <button onClick={() => setModalOpen(false)} style={{ color: 'var(--text-muted)', cursor: 'pointer', background: 'none', border: 'none', fontSize: 18 }}>✕</button>
+                            </div>
                         </div>
 
-                        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                            <div className="space-y-4">
+                        <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            <div>
+                                <label style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8, display: 'block' }}>Nome do Produto *</label>
+                                <input
+                                    type="text"
+                                    value={formData.name}
+                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                    style={{ width: '100%', padding: '10px 14px', borderRadius: 12, fontWeight: 600, fontSize: 13 }}
+                                    placeholder="Ex: X-Burger Especial"
+                                />
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                                 <div>
-                                    <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1.5 ml-1">Nome do Produto</label>
+                                    <label style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8, display: 'block' }}>Preço (R$) *</label>
                                     <input
-                                        required
-                                        type="text"
-                                        value={formData.name}
-                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-600 transition-all text-sm font-medium"
-                                        placeholder="Digite o nome..."
+                                        type="number"
+                                        step="0.01"
+                                        value={formData.price}
+                                        onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                                        style={{ width: '100%', padding: '10px 14px', borderRadius: 12, fontWeight: 600, fontSize: 13 }}
+                                        placeholder="0.00"
                                     />
                                 </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1.5 ml-1">Preço (R$)</label>
-                                        <input
-                                            required
-                                            type="text"
-                                            value={formData.price}
-                                            onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-600 transition-all text-sm font-bold"
-                                            placeholder="0,00"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1.5 ml-1">Categoria</label>
-                                        <select
-                                            value={formData.category_id}
-                                            onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
-                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-600 transition-all text-sm font-bold appearance-none"
-                                        >
-                                            {categories.map(cat => (
-                                                <option key={cat.id} value={cat.id} className="bg-[#121212]">{cat.name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-
                                 <div>
-                                    <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1.5 ml-1">Descrição</label>
-                                    <textarea
-                                        value={formData.description}
-                                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-600 transition-all text-xs font-medium h-24 resize-none"
-                                        placeholder="Breve descrição do produto..."
+                                    <label style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8, display: 'block' }}>Estoque Inicial</label>
+                                    <input
+                                        type="number"
+                                        value={formData.stock_quantity}
+                                        onChange={(e) => setFormData({ ...formData, stock_quantity: parseInt(e.target.value) || 0 })}
+                                        style={{ width: '100%', padding: '10px 14px', borderRadius: 12, fontWeight: 600, fontSize: 13 }}
+                                        placeholder="0"
                                     />
                                 </div>
                             </div>
 
-                            <div className="flex gap-3 pt-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsModalOpen(false)}
-                                    className="flex-1 glass py-3.5 rounded-xl font-bold text-xs uppercase text-gray-400 hover:text-white"
-                                >Cancelar</button>
-                                <button
-                                    type="submit"
-                                    className="flex-1 bg-indigo-600 py-3.5 rounded-xl font-bold text-white shadow-lg hover:bg-indigo-500 uppercase text-xs"
-                                >Salvar Produto</button>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                <div>
+                                    <label style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8, display: 'block' }}>Categoria *</label>
+                                    <select
+                                        value={formData.category_id}
+                                        onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
+                                        style={{ width: '100%', padding: '10px 14px', borderRadius: 12, fontWeight: 600, fontSize: 13 }}
+                                    >
+                                        <option value="">Selecionar...</option>
+                                        {categories.map(c => (
+                                            <option key={c.id} value={c.id}>{c.icon} {c.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8, display: 'block' }}>Status</label>
+                                    <select
+                                        value={formData.status}
+                                        onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                                        style={{ width: '100%', padding: '10px 14px', borderRadius: 12, fontWeight: 600, fontSize: 13 }}
+                                    >
+                                        <option value="Ativo">Ativo</option>
+                                        <option value="Inativo">Inativo</option>
+                                    </select>
+                                </div>
                             </div>
-                        </form>
+                        </div>
+
+                        <div style={{ padding: 24, borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: 12 }}>
+                            <button onClick={() => setModalOpen(false)} className="btn btn-ghost" style={{ flex: 1, padding: '14px 0' }}>Cancelar</button>
+                            <button onClick={handleSave} className="btn btn-primary" style={{ flex: 2, padding: '14px 0' }}>
+                                {editItem ? 'Salvar Alterações' : 'Criar Item'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

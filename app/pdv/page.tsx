@@ -54,45 +54,22 @@ function PDVContent() {
         }).filter(c => c.qty > 0));
     };
 
-    const total = cart.reduce((acc, curr) => acc + (curr.item.price * curr.qty), 0);
-
-    const processVoiceCommand = (text: string) => {
-        const words = text.toLowerCase();
-        const mesaMatch = words.match(/mesa (\d+)/);
-        if (mesaMatch) setSelectedTable(parseInt(mesaMatch[1]));
-
-        const qtdMap: { [key: string]: number } = {
-            'um': 1, 'uma': 1, 'dois': 2, 'duas': 2, 'três': 3, 'quatro': 4, 'cinco': 5,
-            'seis': 6, 'sete': 7, 'oito': 8, 'nove': 9, 'dez': 10
-        };
-
-        menuItems.forEach(item => {
-            const itemName = item.name.toLowerCase();
-            if (words.includes(itemName)) {
-                let foundAny = false;
-                Object.keys(qtdMap).forEach(key => {
-                    if (words.includes(`${key} ${itemName}`)) {
-                        addToCart(item, qtdMap[key]);
-                        foundAny = true;
-                    }
-                });
-                if (!foundAny) {
-                    const digitMatch = words.match(new RegExp(`(\\d+)\\s+${itemName}`));
-                    addToCart(item, digitMatch ? parseInt(digitMatch[1]) : 1);
-                }
-            }
-        });
-    };
+    const total = cart.reduce((acc, curr) => acc + (parseFloat(curr.item.price) * curr.qty), 0);
 
     const finalizarPedido = async () => {
-        if (!selectedTable || cart.length === 0) return;
+        if (!selectedTable) {
+            alert('Por favor, selecione uma mesa antes de lançar o pedido.');
+            return;
+        }
+        if (cart.length === 0) return;
         setIsSubmitting(true);
 
         try {
+            const isCounterSale = selectedTable === 999;
             const { data: order, error: orderError } = await supabase
                 .from('orders')
                 .insert({
-                    table_id: selectedTable,
+                    table_id: isCounterSale ? null : selectedTable,
                     status: 'fila',
                     total_amount: total
                 })
@@ -105,29 +82,43 @@ function PDVContent() {
                 order_id: order.id,
                 product_id: c.item.id,
                 quantity: c.qty,
-                unit_price: c.item.price
+                unit_price: parseFloat(c.item.price)
             }));
 
             const { error: itemsError } = await supabase
                 .from('order_items')
                 .insert(itemsToInsert);
 
-            if (itemsError) throw itemsError;
+            if (itemsError) {
+                console.error('Error inserting items, rolling back order:', order.id);
+                await supabase.from('orders').delete().eq('id', order.id);
+                throw itemsError;
+            }
 
-            const currentTable = tables.find(t => t.id === selectedTable);
-            const newTotal = (parseFloat(currentTable?.total_amount || 0) + total);
+            // Decrement Stock
+            for (const c of cart) {
+                const newStock = (c.item.stock_quantity || 0) - c.qty;
+                await supabase.from('products').update({ stock_quantity: newStock }).eq('id', c.item.id);
+            }
 
-            await supabase
-                .from('tables')
-                .update({ status: 'occupied', total_amount: newTotal })
-                .eq('id', selectedTable);
+            if (!isCounterSale) {
+                const currentTable = tables.find(t => t.id === selectedTable);
+                const newTotal = (parseFloat(currentTable?.total_amount || 0) + total);
 
-            alert('Pedido enviado! 🍳');
+                await supabase
+                    .from('tables')
+                    .update({ status: 'occupied', total_amount: newTotal })
+                    .eq('id', selectedTable);
+            }
+
+            alert(isCounterSale ? 'Venda Balcão registrada! 🛍️' : `Pedido lançado para Mesa ${selectedTable}! 🍳`);
             setCart([]);
-            setSelectedTable(null);
 
+            // Refetch data
             const { data: updatedTables } = await supabase.from('tables').select('*').order('id', { ascending: true });
             if (updatedTables) setTables(updatedTables);
+            const { data: updatedProducts } = await supabase.from('products').select('*').eq('status', 'Ativo');
+            if (updatedProducts) setMenuItems(updatedProducts);
 
         } catch (error: any) {
             alert('Erro: ' + error.message);
@@ -142,108 +133,241 @@ function PDVContent() {
     };
 
     return (
-        <div className="flex h-screen p-4 gap-4 overflow-hidden bg-[#050505]">
-            <Sidebar />
-
-            <div className="flex-1 flex gap-4">
-                <section className="flex-1 flex flex-col gap-4">
-                    <header className="flex justify-between items-center py-2">
-                        <div className="flex items-center gap-4">
-                            <h1 className="text-xl font-bold text-white">Novo Pedido 🍔</h1>
-                            <button
-                                onMouseDown={() => {
-                                    const recognition = new (window as any).webkitSpeechRecognition();
-                                    recognition.lang = 'pt-BR';
-                                    recognition.start();
-                                    (window as any).recognitionByVoz = recognition;
-                                    document.getElementById('pdv-mic-status')?.classList.remove('hidden');
-                                }}
-                                onMouseUp={() => {
-                                    const recognition = (window as any).recognitionByVoz;
-                                    if (recognition) {
-                                        recognition.stop();
-                                        recognition.onresult = (event: any) => {
-                                            processVoiceCommand(event.results[0][0].transcript);
-                                            document.getElementById('pdv-mic-status')?.classList.add('hidden');
-                                        };
-                                    }
-                                }}
-                                className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center shadow-lg text-white"
-                            >
-                                🎤
-                            </button>
-                            <span id="pdv-mic-status" className="hidden text-[10px] font-bold text-indigo-400 uppercase">Ouvindo...</span>
-                        </div>
-                        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide max-w-[400px]">
-                            <button onClick={() => setActiveCategory({ id: 'all', name: 'Todos' })} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeCategory.id === 'all' ? 'bg-white text-black' : 'glass text-gray-400 hover:text-white'}`}>Todos</button>
-                            {categories.map(cat => (
-                                <button key={cat.id} onClick={() => setActiveCategory(cat)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all ${activeCategory.id === cat.id ? 'bg-white text-black' : 'glass text-gray-400 hover:text-white'}`}><span>{cat.icon}</span>{cat.name}</button>
-                            ))}
-                        </div>
-                    </header>
-
-                    <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto pr-2 pb-4 scrollbar-hide">
-                        {menuItems.filter(i => activeCategory.id === 'all' || i.category_id === activeCategory.id).map(item => (
-                            <div key={item.id} onClick={() => addToCart(item)} className="glass p-4 cursor-pointer hover:bg-white/5 active:scale-95 text-center flex flex-col items-center gap-3">
-                                <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">{getProductIcon(item)}</div>
-                                <div className="space-y-1">
-                                    <h4 className="font-bold text-white text-xs line-clamp-2">{item.name}</h4>
-                                    <p className="text-indigo-400 font-bold text-xs">R$ {parseFloat(item.price).toFixed(2).replace('.', ',')}</p>
-                                </div>
-                            </div>
-                        ))}
+        <>
+            <section style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 0, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+                {/* Header */}
+                <header style={{ display: 'flex', alignItems: 'center', padding: '4px 0', gap: 24 }}>
+                    <div>
+                        <h1 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>PDV Guarandrade 🛒</h1>
+                        <p style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>
+                            {selectedTable === 999 ? 'Venda Balcão Selecionada' : selectedTable ? `Mesa ${selectedTable} Selecionada` : 'Selecione uma mesa'}
+                        </p>
                     </div>
-                </section>
-
-                <aside className="w-72 md:w-80 glass flex flex-col overflow-hidden bg-white/5 border border-white/5">
-                    <div className="p-4 border-b border-white/5">
-                        <h3 className="font-bold text-sm text-white mb-3">Mesa</h3>
-                        <div className="grid grid-cols-4 gap-1.5">
-                            {tables.map(table => (
-                                <button key={table.id} onClick={() => setSelectedTable(table.id)} className={`py-1.5 text-[10px] font-bold rounded-lg transition-all ${selectedTable === table.id ? 'bg-indigo-600 text-white shadow-lg' : table.status === 'occupied' ? 'bg-red-500/10 text-red-500' : table.status === 'dirty' ? 'bg-yellow-500/10 text-yellow-500' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>{table.id}</button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                        {cart.map(c => (
-                            <div key={c.item.id} className="flex justify-between items-center transition-all">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center text-lg">{getProductIcon(c.item)}</div>
-                                    <div className="max-w-[100px]"><h5 className="text-xs font-bold text-white truncate">{c.item.name}</h5><p className="text-[9px] text-gray-500">R$ {parseFloat(c.item.price).toFixed(2)}</p></div>
-                                </div>
-                                <div className="flex items-center gap-2 glass p-1 rounded-lg">
-                                    <button onClick={() => removeFromCart(c.item.id)} className="w-5 h-5 flex items-center justify-center font-bold text-red-400 text-xs">-</button>
-                                    <span className="text-xs font-bold text-white w-4 text-center">{c.qty}</span>
-                                    <button onClick={() => addToCart(c.item)} className="w-5 h-5 flex items-center justify-center font-bold text-green-400 text-xs">+</button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="p-4 border-t border-white/5 bg-white/5 space-y-3">
-                        <div className="flex justify-between items-center text-white">
-                            <span className="text-gray-400 text-xs font-medium">Subtotal:</span>
-                            <span className="text-xl font-bold text-indigo-400">R$ {total.toFixed(2).replace('.', ',')}</span>
-                        </div>
+                    <div style={{ display: 'flex', gap: 6, overflowX: 'auto', flex: 1, minWidth: 0, paddingBottom: 4 }} className="scrollbar-thin">
                         <button
-                            onClick={finalizarPedido}
-                            disabled={cart.length === 0 || !selectedTable || isSubmitting}
-                            className="w-full py-3 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-500 disabled:opacity-50 uppercase tracking-wider"
-                        >
-                            {isSubmitting ? '...' : 'Enviar Pedido'}
-                        </button>
+                            onClick={() => setActiveCategory({ id: 'all', name: 'Todos' })}
+                            className={`btn ${activeCategory.id === 'all' ? 'btn-primary' : 'btn-ghost'}`}
+                            style={{ fontSize: 10, padding: '8px 14px', whiteSpace: 'nowrap' }}
+                        >Todos</button>
+                        {categories.map(cat => (
+                            <button
+                                key={cat.id}
+                                onClick={() => setActiveCategory(cat)}
+                                className={`btn ${activeCategory.id === cat.id ? 'btn-primary' : 'btn-ghost'}`}
+                                style={{ fontSize: 10, padding: '8px 14px', whiteSpace: 'nowrap' }}
+                            >{cat.icon} {cat.name}</button>
+                        ))}
                     </div>
-                </aside>
-            </div>
-        </div>
+                </header>
+
+                {/* Products Grid */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(175px, 1fr))',
+                    gap: 12,
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    alignContent: 'start',
+                    paddingRight: 8,
+                    paddingBottom: 16,
+                }} className="scrollbar-hide">
+                    {menuItems.filter(i => activeCategory.id === 'all' || i.category_id === activeCategory.id).map((item, idx) => (
+                        <div
+                            key={item.id}
+                            onClick={() => addToCart(item)}
+                            className="animate-fade-in"
+                            style={{
+                                background: 'var(--bg-card)',
+                                border: '1px solid var(--border-subtle)',
+                                borderRadius: 16,
+                                padding: 16,
+                                cursor: 'pointer',
+                                textAlign: 'center',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 10,
+                                transition: 'all 0.2s ease',
+                                animationDelay: `${idx * 0.02}s`,
+                                opacity: 0,
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.background = 'var(--bg-card-hover)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-subtle)'; e.currentTarget.style.background = 'var(--bg-card)'; }}
+                        >
+                            <div style={{
+                                width: 48, height: 48, borderRadius: 14,
+                                background: 'var(--bg-card)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 26,
+                                transition: 'transform 0.2s ease',
+                            }}>
+                                {getProductIcon(item)}
+                            </div>
+                            <div style={{ width: '100%' }}>
+                                <h4 style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '-0.01em', marginBottom: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</h4>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ fontSize: 13, fontWeight: 900, color: 'var(--price-color)', letterSpacing: '-0.02em' }}>R$ {parseFloat(item.price).toFixed(2).replace('.', ',')}</span>
+                                    <span className={`badge ${(item.stock_quantity || 0) > 0 ? 'badge-info' : 'badge-danger'}`} style={{ fontSize: 8, padding: '2px 6px' }}>
+                                        {item.stock_quantity || 0}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            {/* Cart Sidebar */}
+            <aside style={{
+                width: 300,
+                background: 'var(--bg-card)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 20,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                flexShrink: 0,
+            }}>
+                {/* Table Selector */}
+                <div style={{ padding: 16, borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-card)' }}>
+                    <p style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Mesa Atual</p>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, maxHeight: 100, overflowY: 'auto' }} className="scrollbar-hide">
+                        <button
+                            onClick={() => setSelectedTable(999)}
+                            style={{
+                                padding: '8px 0',
+                                fontSize: 10,
+                                fontWeight: 800,
+                                borderRadius: 10,
+                                border: selectedTable === 999 ? '1px solid rgba(234,29,44,0.5)' : '1px solid var(--border-color)',
+                                background: selectedTable === 999 ? 'linear-gradient(135deg, #EA1D2C, #C8101E)' : 'var(--bg-card)',
+                                color: selectedTable === 999 ? 'white' : 'var(--text-muted)',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                            }}
+                        >👋 Bal</button>
+                        {tables.map(table => (
+                            <button
+                                key={table.id}
+                                onClick={() => setSelectedTable(table.id)}
+                                style={{
+                                    padding: '8px 0',
+                                    fontSize: 11,
+                                    fontWeight: 800,
+                                    borderRadius: 10,
+                                    border: selectedTable === table.id ? '1px solid rgba(234,29,44,0.5)' : '1px solid var(--border-color)',
+                                    background: selectedTable === table.id ? 'linear-gradient(135deg, #EA1D2C, #C8101E)' : table.status === 'occupied' ? 'rgba(239,68,68,0.08)' : 'var(--bg-card)',
+                                    color: selectedTable === table.id ? 'white' : table.status === 'occupied' ? '#ef4444' : 'var(--text-muted)',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                }}
+                            >
+                                {table.id}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Cart Items */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }} className="scrollbar-hide">
+                    {cart.length === 0 ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.2 }}>
+                            <span style={{ fontSize: 48, marginBottom: 12 }} className="animate-pulse">🛒</span>
+                            <p style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', textAlign: 'center', color: 'var(--text-primary)', lineHeight: 1.6 }}>
+                                Selecione produtos<br />para adicionar ao pedido
+                            </p>
+                        </div>
+                    ) : (
+                        cart.map(c => (
+                            <div key={c.item.id} style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                background: 'var(--bg-card)',
+                                padding: 10,
+                                borderRadius: 14,
+                                border: '1px solid var(--border-subtle)',
+                                transition: 'border-color 0.15s ease',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <div style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--bg-card-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{getProductIcon(c.item)}</div>
+                                    <div style={{ maxWidth: 90 }}>
+                                        <h5 style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textTransform: 'uppercase' }}>{c.item.name}</h5>
+                                        <p style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 600, fontFamily: 'monospace' }}>R$ {parseFloat(c.item.price).toFixed(2)}</p>
+                                    </div>
+                                </div>
+                                <div style={{
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    background: 'var(--hover-overlay)',
+                                    padding: '4px 6px',
+                                    borderRadius: 10,
+                                    border: '1px solid var(--border-color)',
+                                }}>
+                                    <button
+                                        onClick={() => removeFromCart(c.item.id)}
+                                        style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: '#f87171', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 6, transition: 'background 0.15s' }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                                    >-</button>
+                                    <span style={{ fontSize: 12, fontWeight: 900, color: 'var(--text-primary)', width: 18, textAlign: 'center' }}>{c.qty}</span>
+                                    <button
+                                        onClick={() => addToCart(c.item)}
+                                        style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: '#6FCF97', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 6, transition: 'background 0.15s' }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(80,167,115,0.1)'}
+                                        onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                                    >+</button>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div style={{ padding: 16, borderTop: '1px solid var(--border-color)', background: 'var(--bg-card)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 14 }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Total Pedido:</span>
+                        <span style={{ fontSize: 26, fontWeight: 900, color: 'var(--price-color)', letterSpacing: '-0.03em', fontFamily: 'monospace' }}>R$ {total.toFixed(2).replace('.', ',')}</span>
+                    </div>
+                    <button
+                        onClick={finalizarPedido}
+                        disabled={cart.length === 0 || !selectedTable || isSubmitting}
+                        className="btn btn-primary"
+                        style={{
+                            width: '100%',
+                            padding: '16px 0',
+                            opacity: (cart.length === 0 || !selectedTable) ? 0.4 : 1,
+                            cursor: (cart.length === 0 || !selectedTable || isSubmitting) ? 'not-allowed' : 'pointer',
+                        }}
+                    >
+                        {isSubmitting ? 'Enviando...' : !selectedTable ? 'Selecione uma Mesa' : selectedTable === 999 ? 'Finalizar Balcão 🛍️' : 'Lançar Pedido 🚀'}
+                    </button>
+                </div>
+            </aside>
+        </>
     );
 }
 
 export default function PDV() {
     return (
-        <Suspense fallback={<div className="p-10 text-white text-xs">Carregando...</div>}>
-            <PDVContent />
-        </Suspense>
+        <div style={{ display: 'flex', height: '100%', padding: '4px 16px 16px 16px', gap: 16 }}>
+            <div style={{ flexShrink: 0, zIndex: 100 }}>
+                <Sidebar />
+            </div>
+            <div style={{ flex: 1, display: 'flex', gap: 16, minWidth: 0, minHeight: 0, position: 'relative', zIndex: 0 }}>
+                <Suspense fallback={
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div className="animate-pulse" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                            <div style={{ fontSize: 40 }}>🛒</div>
+                            <p style={{ fontWeight: 800, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-secondary)' }}>Iniciando PDV...</p>
+                        </div>
+                    </div>
+                }>
+                    <PDVContent />
+                </Suspense>
+            </div>
+        </div>
     );
 }

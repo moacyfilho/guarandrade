@@ -1,98 +1,114 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
-import { QRCodeSVG } from 'qrcode.react';
 
 export default function QRCodes() {
     const [tables, setTables] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [baseUrl, setBaseUrl] = useState('');
+    const printRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const fetchTables = async () => {
-            const { data } = await supabase.from('tables').select('*').order('id');
+            const { data } = await supabase.from('tables').select('*').order('id', { ascending: true });
             if (data) setTables(data);
             setLoading(false);
         };
         fetchTables();
-
-        // In production this would be the real domain
-        setBaseUrl(window.location.origin);
     }, []);
+
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
 
     const handlePrint = () => {
         window.print();
     };
 
-    if (loading) return <div className="p-8 text-white uppercase font-black animate-pulse">Gerando códigos...</div>;
+    if (loading) return (
+        <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-page)' }}>
+            <div className="animate-pulse" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                <div style={{ fontSize: 40 }}>📱</div>
+                <p style={{ fontWeight: 800, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-secondary)' }}>Carregando QR Codes...</p>
+            </div>
+        </div>
+    );
 
     return (
-        <div className="flex h-screen p-4 gap-4 bg-[#050505]">
-            <div className="print:hidden">
-                <Sidebar />
-            </div>
+        <div style={{ display: 'flex', height: '100vh', padding: 16, gap: 16 }}>
+            <Sidebar />
 
-            <main className="flex-1 overflow-y-auto space-y-8 pr-2">
-                <header className="flex justify-between items-center py-4 print:hidden">
+            <main style={{ flex: 1, overflowY: 'auto', paddingRight: 8 }}>
+                {/* Header */}
+                <header className="print:hidden" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', marginBottom: 24 }}>
                     <div>
-                        <h1 className="text-3xl font-black text-white uppercase tracking-tighter italic">Gerador de QR Codes 📱</h1>
-                        <p className="text-gray-400">Imprima os códigos para as mesas da sua lanchonete.</p>
+                        <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
+                            QR Codes 📱
+                        </h1>
+                        <p style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>
+                            {tables.length} mesas cadastradas · Imprima os códigos para seus clientes
+                        </p>
                     </div>
-                    <button
-                        onClick={handlePrint}
-                        className="bg-indigo-600 px-8 py-3 rounded-2xl font-black text-white hover:bg-indigo-500 shadow-xl shadow-indigo-600/20 uppercase tracking-widest text-xs"
-                    >
-                        Imprimir Todos
+                    <button onClick={handlePrint} className="btn btn-primary">
+                        🖨️ Imprimir Todos
                     </button>
                 </header>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-                    {tables.map(table => (
-                        <div key={table.id} className="glass p-8 flex flex-col items-center gap-6 print:border print:border-black print:shadow-none bg-white/5">
-                            {/* Branding on Card */}
-                            <div className="text-center">
-                                <h2 className="text-4xl font-black text-white mb-1">{table.name}</h2>
-                                <p className="text-indigo-400 font-bold uppercase tracking-widest text-[10px]">Escanear para Pedir</p>
-                            </div>
-
-                            {/* QR Code */}
-                            <div className="p-4 bg-white rounded-3xl shadow-2xl">
-                                <QRCodeSVG
-                                    value={`${baseUrl}/menu?table=${table.id}`}
-                                    size={180}
-                                    level="H"
-                                    includeMargin={true}
-                                />
-                            </div>
-
-                            {/* Logo Reference */}
-                            <div className="flex items-center gap-2">
-                                <div className="text-2xl">🥟</div>
-                                <div className="text-left leading-none">
-                                    <p className="text-white font-black text-xs uppercase">Guarandrade</p>
-                                    <p className="text-gray-500 text-[8px] uppercase font-bold tracking-tighter">Dos Selvas e Dos Feras</p>
+                {/* QR Grid */}
+                <div ref={printRef} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16, paddingBottom: 24 }}>
+                    {tables.map((table, idx) => {
+                        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(baseUrl + '/menu?table=' + table.id)}`;
+                        return (
+                            <div key={table.id} className="animate-fade-in" style={{
+                                background: 'var(--bg-card)',
+                                border: '1px solid var(--border-color)',
+                                borderRadius: 20,
+                                padding: 24,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 16,
+                                animationDelay: `${idx * 0.04}s`,
+                                opacity: 0,
+                            }}>
+                                <div style={{
+                                    background: 'white',
+                                    borderRadius: 16,
+                                    padding: 16,
+                                    boxShadow: 'var(--shadow-card)',
+                                }}>
+                                    <img
+                                        src={qrUrl}
+                                        alt={`QR Code - ${table.name}`}
+                                        style={{ width: 160, height: 160, display: 'block' }}
+                                    />
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>{table.name}</h3>
+                                    <p style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Escaneie para acessar o cardápio</p>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
-
-                {/* Print Styles */}
-                <style jsx global>{`
-                    @media print {
-                        body { background: white !important; }
-                        .glass { background: white !important; border: 2px solid #eee !important; color: black !important; }
-                        .text-white { color: black !important; }
-                        .text-gray-400, .text-gray-500 { color: #666 !important; }
-                        .text-indigo-400 { color: #4338ca !important; }
-                        .print\\:hidden { display: none !important; }
-                        .grid { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 20px !important; }
-                        main { padding: 0 !important; overflow: visible !important; }
-                    }
-                `}</style>
             </main>
+
+            {/* Print-only styles */}
+            <style jsx global>{`
+                @media print {
+                    body { background: white !important; }
+                    .print\\:hidden { display: none !important; }
+                    aside { display: none !important; }
+                    main { padding: 0 !important; }
+                    [class*="animate-fade-in"] { opacity: 1 !important; animation: none !important; }
+                    div[style*="background: rgba(255,255,255,0.02)"] {
+                        background: white !important;
+                        border: 2px solid #eee !important;
+                        page-break-inside: avoid;
+                    }
+                    h3 { color: black !important; }
+                    p { color: #666 !important; }
+                }
+            `}</style>
         </div>
     );
 }
