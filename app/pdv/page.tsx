@@ -241,8 +241,8 @@ function PDVContent() {
                                 fontSize: 10,
                                 fontWeight: 800,
                                 borderRadius: 10,
-                                border: selectedTable === 999 ? '1px solid rgba(234,29,44,0.5)' : '1px solid var(--border-color)',
-                                background: selectedTable === 999 ? 'linear-gradient(135deg, #EA1D2C, #C8101E)' : 'var(--bg-card)',
+                                border: selectedTable === 999 ? '1px solid rgba(234, 29, 44, 0.5)' : '1px solid var(--border-color)',
+                                background: selectedTable === 999 ? 'linear-gradient(135deg, var(--primary), var(--primary-glow))' : 'var(--bg-card)',
                                 color: selectedTable === 999 ? 'white' : 'var(--text-muted)',
                                 cursor: 'pointer',
                                 transition: 'all 0.15s ease',
@@ -258,9 +258,9 @@ function PDVContent() {
                                     fontSize: 11,
                                     fontWeight: 800,
                                     borderRadius: 10,
-                                    border: selectedTable === table.id ? '1px solid rgba(234,29,44,0.5)' : '1px solid var(--border-color)',
-                                    background: selectedTable === table.id ? 'linear-gradient(135deg, #EA1D2C, #C8101E)' : table.status === 'occupied' ? 'rgba(239,68,68,0.08)' : 'var(--bg-card)',
-                                    color: selectedTable === table.id ? 'white' : table.status === 'occupied' ? '#ef4444' : 'var(--text-muted)',
+                                    border: selectedTable === table.id ? '1px solid rgba(234, 29, 44, 0.5)' : '1px solid var(--border-color)',
+                                    background: selectedTable === table.id ? 'linear-gradient(135deg, var(--primary), var(--primary-glow))' : table.status === 'occupied' ? 'rgba(234, 29, 44, 0.08)' : 'var(--bg-card)',
+                                    color: selectedTable === table.id ? 'white' : table.status === 'occupied' ? 'var(--danger)' : 'var(--text-muted)',
                                     cursor: 'pointer',
                                     transition: 'all 0.15s ease',
                                 }}
@@ -308,15 +308,15 @@ function PDVContent() {
                                 }}>
                                     <button
                                         onClick={() => removeFromCart(c.item.id)}
-                                        style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: '#f87171', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 6, transition: 'background 0.15s' }}
-                                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
+                                        style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: 'var(--danger)', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 6, transition: 'background 0.15s' }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(234, 29, 44, 0.1)'}
                                         onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
                                     >-</button>
                                     <span style={{ fontSize: 12, fontWeight: 900, color: 'var(--text-primary)', width: 18, textAlign: 'center' }}>{c.qty}</span>
                                     <button
                                         onClick={() => addToCart(c.item)}
-                                        style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: '#6FCF97', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 6, transition: 'background 0.15s' }}
-                                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(80,167,115,0.1)'}
+                                        style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: 'var(--success)', fontSize: 12, background: 'none', border: 'none', cursor: 'pointer', borderRadius: 6, transition: 'background 0.15s' }}
+                                        onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(80, 167, 115, 0.1)'}
                                         onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
                                     >+</button>
                                 </div>
