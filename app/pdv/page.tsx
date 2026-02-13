@@ -78,11 +78,11 @@ function PDVContent() {
 
             if (orderError) throw orderError;
 
-            const orderItems = cart.map(c => ({
+            const orderItems = cart.map(cartItem => ({
                 order_id: order.id,
-                product_id: c.item.id,
-                quantity: c.qty,
-                unit_price: parseFloat(c.item.price)
+                product_id: cartItem.item.id,
+                quantity: cartItem.qty,
+                unit_price: parseFloat(cartItem.item.price)
             }));
 
             const { error: itemsError } = await supabase
