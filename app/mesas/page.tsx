@@ -32,7 +32,30 @@ export default function Mesas() {
             .neq('status', 'finalizado')
             .order('created_at', { ascending: false });
 
-        if (tablesData) setTables(tablesData);
+        const { data: activeOrders } = await supabase
+            .from('orders')
+            .select(`
+                *,
+                order_items (
+                    id
+                )
+            `)
+            .is('status', 'fila')
+            .not('table_id', 'is', null);
+
+        if (tablesData) {
+            // Calculate real total for each table
+            const tablesWithRealTotal = tablesData.map(table => {
+                if (table.status !== 'occupied') return table;
+
+                const tableOrders = activeOrders?.filter(o => o.table_id === table.id) || [];
+                const realTotal = tableOrders.reduce((acc, curr) => acc + Number(curr.total_amount || 0), 0);
+
+                return { ...table, total_amount: realTotal };
+            });
+            setTables(tablesWithRealTotal);
+        }
+
         if (counterData) {
             const validCounterOrders = counterData.filter(o => o.order_items && o.order_items.length > 0);
             setCounterOrders(validCounterOrders);
