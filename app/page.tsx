@@ -53,7 +53,30 @@ export default function Home() {
             { label: 'Tempo Médio', value: '18 min', icon: '⏱️', color: '#fb923c', gradient: 'linear-gradient(135deg, rgba(251,146,60,0.12), rgba(251,146,60,0.03))' },
         ]);
 
-        if (tablesData) setTables(tablesData);
+        const { data: activeOrders } = await supabase
+            .from('orders')
+            .select(`
+                *,
+                order_items (
+                    id
+                )
+            `)
+            .eq('status', 'fila')
+            .not('table_id', 'is', null);
+
+        if (tablesData) {
+            // Calculate real total for each table
+            const tablesWithRealTotal = tablesData.map(table => {
+                if (table.status !== 'occupied') return table;
+
+                const tableOrders = activeOrders?.filter(o => o.table_id === table.id) || [];
+                const realTotal = tableOrders.reduce((acc, curr) => acc + Number(curr.total_amount || 0), 0);
+
+                return { ...table, total_amount: realTotal };
+            });
+            setTables(tablesWithRealTotal);
+        }
+
         if (ordersData) setRecentOrders(ordersData);
         setLoading(false);
     };
