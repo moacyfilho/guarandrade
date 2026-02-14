@@ -40,15 +40,16 @@ export default function Mesas() {
                     id
                 )
             `)
-            .is('status', 'fila')
-            .not('table_id', 'is', null);
+            .eq('status', 'fila');
+
+        const tableOrdersFilter = activeOrders?.filter(o => o.table_id !== null) || [];
 
         if (tablesData) {
             // Calculate real total for each table
             const tablesWithRealTotal = tablesData.map(table => {
                 if (table.status !== 'occupied') return table;
 
-                const tableOrders = activeOrders?.filter(o => o.table_id === table.id) || [];
+                const tableOrders = tableOrdersFilter.filter(o => o.table_id === table.id);
                 const realTotal = tableOrders.reduce((acc, curr) => acc + Number(curr.total_amount || 0), 0);
 
                 return { ...table, total_amount: realTotal };
