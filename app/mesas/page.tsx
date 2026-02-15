@@ -94,28 +94,54 @@ export default function Mesas() {
             return;
         }
 
+        console.log('🔍 Buscando pedidos para mesa:', table.id);
+
         const { data, error } = await supabase
             .from('orders')
-            .select(`*, order_items (*, products (name))`)
+            .select(`
+                *,
+                order_items (
+                    *,
+                    products (name)
+                )
+            `)
             .eq('table_id', table.id)
             .neq('status', 'finalizado');
 
         if (error) {
+            console.error('❌ Erro ao buscar pedidos:', error);
             alert('Erro ao carregar conta: ' + error.message);
             return;
         }
 
+        console.log('📦 Pedidos encontrados:', data);
+
         if (data && data.length > 0) {
-            const validOrders = data.filter(o => o.order_items && o.order_items.length > 0);
-            const allItems = validOrders.flatMap(o => o.order_items);
-            const totalAmount = validOrders.reduce((acc, curr) => acc + Number(curr.total_amount), 0);
+            // Filter orders that have items OR have a total amount > 0 (to allow closing empty orders)
+            const validOrders = data.filter(o => (o.order_items && o.order_items.length > 0) || parseFloat(o.total_amount) > 0);
+
+            if (validOrders.length === 0) {
+                console.warn('⚠️ Pedidos encontrados mas sem itens válidos ou valor zerado.');
+                alert('Mesa com pedidos inconsistentes. Verifique o console.');
+                return;
+            }
+
+            const allItems = validOrders.flatMap(o => o.order_items || []);
+            const totalAmount = validOrders.reduce((acc, curr) => acc + Number(curr.total_amount || 0), 0);
+
+            console.log('✅ Itens processados:', allItems.length, 'Total:', totalAmount);
 
             setReceiptModal({
                 table,
                 order: { items: allItems, total_amount: totalAmount, originalOrders: validOrders }
             });
         } else {
-            alert('Não foi possível encontrar um pedido ativo para esta mesa.');
+            console.warn('⚠️ Nenhum pedido ativo encontrado no banco para esta mesa.');
+            // Se a mesa está ocupada mas não tem pedido, oferecer opção de liberar
+            if (confirm('Não foi encontrado nenhum pedido ativo para esta mesa, mas ela consta como Ocupada. Deseja liberar a mesa?')) {
+                await supabase.from('tables').update({ status: 'available', total_amount: 0 }).eq('id', table.id);
+                fetchData();
+            }
         }
     };
 
