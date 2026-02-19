@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
 
 function PDVContent() {
     const searchParams = useSearchParams();
+    const router = useRouter();
     const tableParam = searchParams.get('table');
 
     const [activeCategory, setActiveCategory] = useState({ id: 'all', name: 'Todos' });
@@ -113,6 +114,11 @@ function PDVContent() {
 
             alert(isCounterSale ? 'Venda Balcão registrada! 🛍️' : `Pedido lançado para Mesa ${selectedTable}! 🍳`);
             setCart([]);
+
+            if (!isCounterSale) {
+                router.push('/mesas');
+                return;
+            }
 
             // Refetch data
             const { data: updatedTables } = await supabase.from('tables').select('*').order('id', { ascending: true });

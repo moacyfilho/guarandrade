@@ -12,8 +12,8 @@ export default function Mesas() {
     const [loading, setLoading] = useState(true);
     const [receiptModal, setReceiptModal] = useState<any>(null);
 
-    const fetchData = async () => {
-        setLoading(true);
+    const fetchData = async (showLoading = true) => {
+        if (showLoading) setLoading(true);
         const { data: tablesData } = await supabase
             .from('tables')
             .select('*')
@@ -69,12 +69,12 @@ export default function Mesas() {
 
         const tablesChannel = supabase
             .channel('public:tables')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => fetchData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => fetchData(false))
             .subscribe();
 
         const ordersChannel = supabase
             .channel('public:orders')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchData())
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchData(false))
             .subscribe();
 
         return () => {
