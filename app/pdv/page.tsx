@@ -103,12 +103,20 @@ function PDVContent() {
             }
 
             if (!isCounterSale) {
-                const currentTable = tables.find(t => t.id === selectedTable);
-                const newTotal = (parseFloat(currentTable?.total_amount || 0) + total);
+                // Busca o total real de TODOS os pedidos ativos da mesa (não apenas do cache local)
+                const { data: existingOrders } = await supabase
+                    .from('orders')
+                    .select('total_amount')
+                    .eq('table_id', selectedTable)
+                    .neq('status', 'finalizado');
+
+                const existingTotal = (existingOrders || []).reduce(
+                    (acc, o) => acc + Number(o.total_amount || 0), 0
+                );
 
                 await supabase
                     .from('tables')
-                    .update({ status: 'occupied', total_amount: newTotal })
+                    .update({ status: 'occupied', total_amount: existingTotal })
                     .eq('id', selectedTable);
             }
 

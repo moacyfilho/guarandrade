@@ -40,7 +40,7 @@ export default function Mesas() {
                     id
                 )
             `)
-            .eq('status', 'fila');
+            .neq('status', 'finalizado');
 
         const tableOrdersFilter = activeOrders?.filter(o => o.table_id !== null) || [];
 
