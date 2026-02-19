@@ -22,9 +22,9 @@ const statusConfig: Record<string, { label: string; btn: string; nextLabel: stri
         border: 'rgba(80, 167, 115, 0.2)',
     },
     pronto: {
-        label: 'Pronto',
+        label: 'Pronto ✓',
         btn: 'linear-gradient(135deg, var(--primary), var(--primary-glow))',
-        nextLabel: '📦 Finalizar',
+        nextLabel: '🛎️ Entregar à Mesa',
         color: 'var(--primary)',
         bg: 'rgba(234, 29, 44, 0.05)',
         border: 'rgba(234, 29, 44, 0.2)',
@@ -46,7 +46,8 @@ export default function Cozinha() {
         const { data } = await supabase
             .from('orders')
             .select(`*, tables(name), order_items(*, products(name))`)
-            .neq('status', 'finalizado')
+            // Mostra apenas pedidos ativos na cozinha (entregue e finalizado ficam fora da tela)
+            .in('status', ['fila', 'preparando', 'pronto'])
             .order('created_at', { ascending: true });
 
         if (data) {
@@ -74,7 +75,8 @@ export default function Cozinha() {
     };
 
     const updateStatus = async (id: string, currentStatus: string) => {
-        const nextStatus = currentStatus === 'fila' ? 'preparando' : currentStatus === 'preparando' ? 'pronto' : 'finalizado';
+        // 'entregue' = entregue à mesa mas NÃO finalizado (só o caixa finaliza ao cobrar)
+        const nextStatus = currentStatus === 'fila' ? 'preparando' : currentStatus === 'preparando' ? 'pronto' : 'entregue';
         await supabase.from('orders').update({ status: nextStatus }).eq('id', id);
         fetchOrders(true);
     };
