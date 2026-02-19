@@ -12,6 +12,7 @@ export default function Mesas() {
     const [counterOrders, setCounterOrders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [receiptModal, setReceiptModal] = useState<any>(null);
+    const [loadingReceipt, setLoadingReceipt] = useState<number | null>(null); // id da mesa carregando
 
     const fetchData = async (showLoading = true) => {
         if (showLoading) setLoading(true);
@@ -79,7 +80,7 @@ export default function Mesas() {
         if (!isCounter && table.status !== 'occupied') return;
 
         if (isCounter) {
-            // Balcão: total calculado diretamente dos itens
+            // Balcão: total calculado diretamente dos itens (instantâneo, sem query)
             const counterTotal = (table.order_items || []).reduce(
                 (acc: number, item: any) => acc + (Number(item.unit_price || 0) * Number(item.quantity || 0)), 0
             );
@@ -89,6 +90,9 @@ export default function Mesas() {
             });
             return;
         }
+
+        // Mostra feedback imediato no botão
+        setLoadingReceipt(table.id);
 
         const { data, error } = await supabase
             .from('orders')
@@ -102,17 +106,17 @@ export default function Mesas() {
             .eq('table_id', table.id)
             .neq('status', 'finalizado');
 
+        setLoadingReceipt(null);
+
         if (error) {
             alert('Erro ao carregar conta: ' + error.message);
             return;
         }
 
         if (data && data.length > 0) {
-            // Todos os itens de todos os pedidos ativos
             const allItems = data.flatMap(o => o.order_items || []);
 
             if (allItems.length === 0) {
-                // Pedidos existem mas sem itens — oferecer liberar a mesa
                 if (confirm('Mesa com pedidos sem itens registrados. Deseja liberar a mesa?')) {
                     await supabase.from('tables').update({ status: 'available', total_amount: 0 }).eq('id', table.id);
                     fetchData();
@@ -120,24 +124,25 @@ export default function Mesas() {
                 return;
             }
 
-            // Total calculado dos itens reais (nunca do campo total_amount que pode estar desatualizado)
             const totalFromItems = allItems.reduce(
                 (acc, item) => acc + (Number(item.unit_price || 0) * Number(item.quantity || 0)), 0
             );
 
-            // Sincronizar o total da mesa no banco com o valor real dos itens
-            await supabase
-                .from('tables')
-                .update({ total_amount: totalFromItems })
-                .eq('id', table.id);
-
-            // Atualizar estado local imediatamente (sem aguardar realtime)
-            setTables(prev => prev.map(t => t.id === table.id ? { ...t, total_amount: totalFromItems } : t));
-
+            // Abre o modal IMEDIATAMENTE sem aguardar a sincronização do banco
             setReceiptModal({
                 table,
                 order: { items: allItems, total_amount: totalFromItems, originalOrders: data }
             });
+
+            // Sincroniza o total no banco em background (não bloqueia a UI)
+            supabase
+                .from('tables')
+                .update({ total_amount: totalFromItems })
+                .eq('id', table.id)
+                .then(() => {
+                    setTables(prev => prev.map(t => t.id === table.id ? { ...t, total_amount: totalFromItems } : t));
+                });
+
         } else {
             if (confirm('Não foi encontrado nenhum pedido ativo para esta mesa. Deseja liberar a mesa?')) {
                 await supabase.from('tables').update({ status: 'available', total_amount: 0 }).eq('id', table.id);
@@ -336,9 +341,10 @@ export default function Mesas() {
                                             <button
                                                 onClick={() => handleOpenReceipt(table)}
                                                 className="btn btn-ghost"
-                                                style={{ width: '100%', padding: '12px 0' }}
+                                                disabled={loadingReceipt === table.id}
+                                                style={{ width: '100%', padding: '12px 0', opacity: loadingReceipt === table.id ? 0.6 : 1 }}
                                             >
-                                                Ver Itens / Fechar
+                                                {loadingReceipt === table.id ? '⏳ Carregando...' : 'Ver Itens / Fechar'}
                                             </button>
                                         </>
                                     ) : table.status === 'dirty' ? (
