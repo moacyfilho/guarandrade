@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 export default function Home() {
     const [stats, setStats] = useState([
@@ -81,15 +82,14 @@ export default function Home() {
         setLoading(false);
     };
 
-    useEffect(() => {
-        fetchData();
-        const channel = supabase
-            .channel('dashboard_updates')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchData())
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => fetchData())
-            .subscribe();
-        return () => { supabase.removeChannel(channel); };
-    }, []);
+    useEffect(() => { fetchData(); }, []);
+
+    // Realtime + polling a cada 10s para o dashboard
+    useRealtimeSync(fetchData, {
+        channelName: 'dashboard_realtime',
+        tables: ['orders', 'tables'],
+        pollInterval: 10000,
+    });
 
     if (loading) return (
         <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-page)' }}>

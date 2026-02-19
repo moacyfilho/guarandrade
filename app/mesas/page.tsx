@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 export default function Mesas() {
     const router = useRouter();
@@ -64,24 +65,15 @@ export default function Mesas() {
         setLoading(false);
     };
 
-    useEffect(() => {
-        fetchData();
+    // Carregamento inicial (com loading screen)
+    useEffect(() => { fetchData(true); }, []);
 
-        const tablesChannel = supabase
-            .channel('public:tables')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, () => fetchData(false))
-            .subscribe();
-
-        const ordersChannel = supabase
-            .channel('public:orders')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchData(false))
-            .subscribe();
-
-        return () => {
-            supabase.removeChannel(tablesChannel);
-            supabase.removeChannel(ordersChannel);
-        };
-    }, []);
+    // Realtime + polling a cada 4s + refresh ao focar a aba (sem loading screen)
+    useRealtimeSync(() => fetchData(false), {
+        channelName: 'mesas_realtime',
+        tables: ['tables', 'orders', 'order_items'],
+        pollInterval: 4000,
+    });
 
     const handleOpenReceipt = async (table: any, isCounter: boolean = false) => {
         if (!isCounter && table.status !== 'occupied') return;

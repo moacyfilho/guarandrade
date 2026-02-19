@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 
 const statusConfig: Record<string, { label: string; btn: string; nextLabel: string; color: string; bg: string; border: string }> = {
     fila: {
@@ -109,22 +110,14 @@ export default function Cozinha() {
 
     useEffect(() => {
         fetchOrders();
-
-        // Realtime subscription
-        const channel = supabase
-            .channel('kds_realtime')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchOrders(true))
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchOrders(true))
-            .subscribe();
-
-        // Polling automático a cada 8 segundos como fallback
-        const pollInterval = setInterval(() => fetchOrders(true), 8000);
-
-        return () => {
-            supabase.removeChannel(channel);
-            clearInterval(pollInterval);
-        };
     }, [fetchOrders]);
+
+    // Realtime + polling a cada 4s + refresh ao focar a aba
+    useRealtimeSync(() => fetchOrders(true), {
+        channelName: 'cozinha_realtime',
+        tables: ['orders', 'order_items'],
+        pollInterval: 4000,
+    });
 
     const getTimeSince = (date: string) => {
         const diff = Math.floor((Date.now() - new Date(date).getTime()) / 60000);
