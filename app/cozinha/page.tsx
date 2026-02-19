@@ -34,29 +34,51 @@ const statusConfig: Record<string, { label: string; btn: string; nextLabel: stri
 export default function Cozinha() {
     const [orders, setOrders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [newOrderIds, setNewOrderIds] = useState<Set<string>>(new Set());
 
-    const fetchOrders = async () => {
+    const fetchOrders = async (silent = false) => {
+        if (!silent) setLoading(true);
         const { data } = await supabase
             .from('orders')
             .select(`*, tables(name), order_items(*, products(name))`)
             .neq('status', 'finalizado')
             .order('created_at', { ascending: true });
-        if (data) setOrders(data);
+
+        if (data) {
+            setOrders(prev => {
+                // Detecta novos pedidos para destacar visualmente
+                if (silent && prev.length > 0) {
+                    const prevIds = new Set(prev.map((o: any) => o.id));
+                    const incoming = data.filter((o: any) => !prevIds.has(o.id));
+                    if (incoming.length > 0) {
+                        const ids = new Set(incoming.map((o: any) => o.id as string));
+                        setNewOrderIds(ids);
+                        // Remove destaque após 4s
+                        setTimeout(() => setNewOrderIds(new Set()), 4000);
+                    }
+                }
+                return data;
+            });
+        }
         setLoading(false);
     };
 
     const updateStatus = async (id: string, currentStatus: string) => {
         const nextStatus = currentStatus === 'fila' ? 'preparando' : currentStatus === 'preparando' ? 'pronto' : 'finalizado';
         await supabase.from('orders').update({ status: nextStatus }).eq('id', id);
-        fetchOrders();
+        fetchOrders(true);
     };
 
     useEffect(() => {
         fetchOrders();
+
+        // Escuta tanto 'orders' quanto 'order_items' para detecção mais rápida
         const channel = supabase
-            .channel('kds_orders')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchOrders())
+            .channel('kds_realtime')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchOrders(true))
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchOrders(true))
             .subscribe();
+
         return () => { supabase.removeChannel(channel); };
     }, []);
 
@@ -125,17 +147,36 @@ export default function Cozinha() {
                             const cfg = statusConfig[order.status] || statusConfig.fila;
                             const timeSince = getTimeSince(order.created_at);
                             const isUrgent = (Date.now() - new Date(order.created_at).getTime()) > 15 * 60 * 1000;
+                            const isNew = newOrderIds.has(order.id);
 
                             return (
                                 <div key={order.id} className="animate-fade-in" style={{
                                     background: 'var(--bg-card)',
-                                    border: `1px solid ${isUrgent && order.status !== 'pronto' ? 'rgba(234, 29, 44, 0.3)' : cfg.border}`,
+                                    border: `1px solid ${isNew ? 'rgba(255, 184, 77, 0.7)' : isUrgent && order.status !== 'pronto' ? 'rgba(234, 29, 44, 0.3)' : cfg.border}`,
                                     borderRadius: 20,
                                     overflow: 'hidden',
                                     animationDelay: `${idx * 0.05}s`,
                                     opacity: 0,
                                     transition: 'all 0.25s ease',
+                                    boxShadow: isNew ? '0 0 24px rgba(255, 184, 77, 0.3)' : 'none',
+                                    animation: isNew ? 'pulse 0.6s ease 3' : undefined,
                                 }}>
+                                    {/* Novo pedido badge */}
+                                    {isNew && (
+                                        <div style={{
+                                            background: 'linear-gradient(135deg, var(--warning), #d97706)',
+                                            padding: '6px 20px',
+                                            textAlign: 'center',
+                                            fontSize: 10,
+                                            fontWeight: 900,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.15em',
+                                            color: '#000',
+                                        }}>
+                                            🔔 NOVO PEDIDO
+                                        </div>
+                                    )}
+
                                     {/* Card Header */}
                                     <div style={{
                                         padding: '16px 20px',
