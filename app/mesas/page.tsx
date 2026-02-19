@@ -87,14 +87,16 @@ export default function Mesas() {
         if (!isCounter && table.status !== 'occupied') return;
 
         if (isCounter) {
+            // Balcão: total calculado diretamente dos itens
+            const counterTotal = (table.order_items || []).reduce(
+                (acc: number, item: any) => acc + (Number(item.unit_price || 0) * Number(item.quantity || 0)), 0
+            );
             setReceiptModal({
                 table: { id: 'Balcão', name: 'Venda Balcão', isCounter: true },
-                order: { items: table.order_items, total_amount: table.total_amount, originalOrders: [table] }
+                order: { items: table.order_items, total_amount: counterTotal, originalOrders: [table] }
             });
             return;
         }
-
-        console.log('🔍 Buscando pedidos para mesa:', table.id);
 
         const { data, error } = await supabase
             .from('orders')
@@ -109,36 +111,43 @@ export default function Mesas() {
             .neq('status', 'finalizado');
 
         if (error) {
-            console.error('❌ Erro ao buscar pedidos:', error);
             alert('Erro ao carregar conta: ' + error.message);
             return;
         }
 
-        console.log('📦 Pedidos encontrados:', data);
-
         if (data && data.length > 0) {
-            // Filter orders that have items OR have a total amount > 0 (to allow closing empty orders)
-            const validOrders = data.filter(o => (o.order_items && o.order_items.length > 0) || parseFloat(o.total_amount) > 0);
+            // Todos os itens de todos os pedidos ativos
+            const allItems = data.flatMap(o => o.order_items || []);
 
-            if (validOrders.length === 0) {
-                console.warn('⚠️ Pedidos encontrados mas sem itens válidos ou valor zerado.');
-                alert('Mesa com pedidos inconsistentes. Verifique o console.');
+            if (allItems.length === 0) {
+                // Pedidos existem mas sem itens — oferecer liberar a mesa
+                if (confirm('Mesa com pedidos sem itens registrados. Deseja liberar a mesa?')) {
+                    await supabase.from('tables').update({ status: 'available', total_amount: 0 }).eq('id', table.id);
+                    fetchData();
+                }
                 return;
             }
 
-            const allItems = validOrders.flatMap(o => o.order_items || []);
-            const totalAmount = validOrders.reduce((acc, curr) => acc + Number(curr.total_amount || 0), 0);
+            // Total calculado dos itens reais (nunca do campo total_amount que pode estar desatualizado)
+            const totalFromItems = allItems.reduce(
+                (acc, item) => acc + (Number(item.unit_price || 0) * Number(item.quantity || 0)), 0
+            );
 
-            console.log('✅ Itens processados:', allItems.length, 'Total:', totalAmount);
+            // Sincronizar o total da mesa no banco com o valor real dos itens
+            await supabase
+                .from('tables')
+                .update({ total_amount: totalFromItems })
+                .eq('id', table.id);
+
+            // Atualizar estado local imediatamente (sem aguardar realtime)
+            setTables(prev => prev.map(t => t.id === table.id ? { ...t, total_amount: totalFromItems } : t));
 
             setReceiptModal({
                 table,
-                order: { items: allItems, total_amount: totalAmount, originalOrders: validOrders }
+                order: { items: allItems, total_amount: totalFromItems, originalOrders: data }
             });
         } else {
-            console.warn('⚠️ Nenhum pedido ativo encontrado no banco para esta mesa.');
-            // Se a mesa está ocupada mas não tem pedido, oferecer opção de liberar
-            if (confirm('Não foi encontrado nenhum pedido ativo para esta mesa, mas ela consta como Ocupada. Deseja liberar a mesa?')) {
+            if (confirm('Não foi encontrado nenhum pedido ativo para esta mesa. Deseja liberar a mesa?')) {
                 await supabase.from('tables').update({ status: 'available', total_amount: 0 }).eq('id', table.id);
                 fetchData();
             }
