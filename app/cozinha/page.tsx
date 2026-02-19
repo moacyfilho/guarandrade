@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
 
@@ -34,10 +34,15 @@ const statusConfig: Record<string, { label: string; btn: string; nextLabel: stri
 export default function Cozinha() {
     const [orders, setOrders] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [newOrderIds, setNewOrderIds] = useState<Set<string>>(new Set());
+    const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+    const ordersRef = useRef<any[]>([]);
 
-    const fetchOrders = async (silent = false) => {
+    const fetchOrders = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
+        else setRefreshing(true);
+
         const { data } = await supabase
             .from('orders')
             .select(`*, tables(name), order_items(*, products(name))`)
@@ -45,22 +50,27 @@ export default function Cozinha() {
             .order('created_at', { ascending: true });
 
         if (data) {
-            setOrders(prev => {
-                // Detecta novos pedidos para destacar visualmente
-                if (silent && prev.length > 0) {
-                    const prevIds = new Set(prev.map((o: any) => o.id));
-                    const incoming = data.filter((o: any) => !prevIds.has(o.id));
-                    if (incoming.length > 0) {
-                        const ids = new Set(incoming.map((o: any) => o.id as string));
-                        setNewOrderIds(ids);
-                        // Remove destaque após 4s
-                        setTimeout(() => setNewOrderIds(new Set()), 4000);
-                    }
+            // Detecta novos pedidos para destacar visualmente
+            const prev = ordersRef.current;
+            if (prev.length > 0) {
+                const prevIds = new Set(prev.map((o: any) => o.id));
+                const incoming = data.filter((o: any) => !prevIds.has(o.id));
+                if (incoming.length > 0) {
+                    const ids = new Set(incoming.map((o: any) => o.id as string));
+                    setNewOrderIds(ids);
+                    setTimeout(() => setNewOrderIds(new Set()), 5000);
                 }
-                return data;
-            });
+            }
+            ordersRef.current = data;
+            setOrders(data);
+            setLastUpdated(new Date());
         }
         setLoading(false);
+        setRefreshing(false);
+    }, []);
+
+    const handleManualRefresh = () => {
+        fetchOrders(true);
     };
 
     const updateStatus = async (id: string, currentStatus: string) => {
@@ -72,19 +82,29 @@ export default function Cozinha() {
     useEffect(() => {
         fetchOrders();
 
-        // Escuta tanto 'orders' quanto 'order_items' para detecção mais rápida
+        // Realtime subscription
         const channel = supabase
             .channel('kds_realtime')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => fetchOrders(true))
             .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => fetchOrders(true))
             .subscribe();
 
-        return () => { supabase.removeChannel(channel); };
-    }, []);
+        // Polling automático a cada 8 segundos como fallback
+        const pollInterval = setInterval(() => fetchOrders(true), 8000);
+
+        return () => {
+            supabase.removeChannel(channel);
+            clearInterval(pollInterval);
+        };
+    }, [fetchOrders]);
 
     const getTimeSince = (date: string) => {
         const diff = Math.floor((Date.now() - new Date(date).getTime()) / 60000);
         return diff < 1 ? 'Agora' : `${diff} min`;
+    };
+
+    const formatLastUpdated = () => {
+        return lastUpdated.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     };
 
     if (loading) return (
@@ -101,16 +121,21 @@ export default function Cozinha() {
             <Sidebar />
             <main style={{ flex: 1, overflowY: 'auto', paddingRight: 8 }}>
                 {/* Header */}
-                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', marginBottom: 24 }}>
+                <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
                     <div>
                         <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
                             Cozinha 🍳
                         </h1>
-                        <p style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500, marginTop: 4 }}>
-                            {orders.length} {orders.length === 1 ? 'pedido ativo' : 'pedidos ativos'}
-                        </p>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
+                            <p style={{ fontSize: 13, color: 'var(--text-muted)', fontWeight: 500 }}>
+                                {orders.length} {orders.length === 1 ? 'pedido ativo' : 'pedidos ativos'}
+                            </p>
+                            <span style={{ fontSize: 10, color: 'var(--text-faint)', fontWeight: 500 }}>
+                                • atualizado às {formatLastUpdated()}
+                            </span>
+                        </div>
                     </div>
-                    <div style={{ display: 'flex', gap: 12 }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                         {Object.entries(statusConfig).map(([key, cfg]) => {
                             const count = orders.filter(o => o.status === key).length;
                             return (
@@ -128,6 +153,61 @@ export default function Cozinha() {
                                 </div>
                             );
                         })}
+
+                        {/* Botão de atualizar manual */}
+                        <button
+                            onClick={handleManualRefresh}
+                            disabled={refreshing}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                padding: '8px 16px',
+                                borderRadius: 12,
+                                border: '1px solid var(--border-color)',
+                                background: 'var(--bg-card)',
+                                color: 'var(--text-muted)',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: refreshing ? 'not-allowed' : 'pointer',
+                                opacity: refreshing ? 0.6 : 1,
+                                transition: 'all 0.2s ease',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.05em',
+                            }}
+                            onMouseEnter={e => { if (!refreshing) { e.currentTarget.style.borderColor = 'var(--primary)'; e.currentTarget.style.color = 'var(--text-primary)'; } }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-color)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+                        >
+                            <span style={{
+                                display: 'inline-block',
+                                animation: refreshing ? 'spin 0.8s linear infinite' : 'none',
+                            }}>🔄</span>
+                            {refreshing ? 'Atualizando...' : 'Atualizar'}
+                        </button>
+                    </div>
+
+                    {/* Indicador de atualização automática */}
+                    <div style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '6px 12px',
+                        borderRadius: 10,
+                        background: 'rgba(80,167,115,0.06)',
+                        border: '1px solid rgba(80,167,115,0.15)',
+                        fontSize: 10,
+                        color: 'var(--success)',
+                        fontWeight: 600,
+                    }}>
+                        <span style={{
+                            width: 6, height: 6, borderRadius: '50%',
+                            background: 'var(--success)',
+                            boxShadow: '0 0 6px var(--success)',
+                            animation: 'pulse 2s infinite',
+                            flexShrink: 0,
+                        }} />
+                        Atualização automática ativada — verifica a cada 8 segundos e em tempo real
                     </div>
                 </header>
 
@@ -159,7 +239,6 @@ export default function Cozinha() {
                                     opacity: 0,
                                     transition: 'all 0.25s ease',
                                     boxShadow: isNew ? '0 0 24px rgba(255, 184, 77, 0.3)' : 'none',
-                                    animation: isNew ? 'pulse 0.6s ease 3' : undefined,
                                 }}>
                                     {/* Novo pedido badge */}
                                     {isNew && (
