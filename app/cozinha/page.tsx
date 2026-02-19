@@ -77,7 +77,33 @@ export default function Cozinha() {
     const updateStatus = async (id: string, currentStatus: string) => {
         // 'entregue' = entregue à mesa mas NÃO finalizado (só o caixa finaliza ao cobrar)
         const nextStatus = currentStatus === 'fila' ? 'preparando' : currentStatus === 'preparando' ? 'pronto' : 'entregue';
+
+        // Atualiza o status do pedido
         await supabase.from('orders').update({ status: nextStatus }).eq('id', id);
+
+        // Se o pedido foi entregue, recalcula o total da mesa para evitar inconsistência
+        if (nextStatus === 'entregue') {
+            // Busca o pedido para saber a mesa
+            const { data: orderData } = await supabase.from('orders').select('table_id').eq('id', id).single();
+            if (orderData?.table_id) {
+                // Soma todos os pedidos ativos da mesa
+                const { data: activeOrders } = await supabase
+                    .from('orders')
+                    .select('total_amount')
+                    .eq('table_id', orderData.table_id)
+                    .neq('status', 'finalizado');
+
+                const realTotal = (activeOrders || []).reduce(
+                    (acc: number, o: any) => acc + parseFloat(o.total_amount || 0), 0
+                );
+
+                await supabase
+                    .from('tables')
+                    .update({ status: 'occupied', total_amount: realTotal })
+                    .eq('id', orderData.table_id);
+            }
+        }
+
         fetchOrders(true);
     };
 

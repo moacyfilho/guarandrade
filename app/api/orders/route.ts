@@ -84,12 +84,20 @@ export async function POST(request: Request) {
         }
 
         // 6. Update Table Status
-        const { data: currentTable } = await supabase.from('tables').select('total_amount').eq('id', table_id).single();
-        const newTotal = (parseFloat(currentTable?.total_amount || 0) + totalAmount);
+        // Calcula o total real somando TODOS os pedidos ativos da mesa (evita inconsistência com cached value)
+        const { data: activeOrdersForTable } = await supabase
+            .from('orders')
+            .select('total_amount')
+            .eq('table_id', table_id)
+            .neq('status', 'finalizado');
+
+        const realTotal = (activeOrdersForTable || []).reduce(
+            (acc, o) => acc + parseFloat(o.total_amount || 0), 0
+        );
 
         await supabase
             .from('tables')
-            .update({ status: 'occupied', total_amount: newTotal })
+            .update({ status: 'occupied', total_amount: realTotal })
             .eq('id', table_id);
 
         return NextResponse.json({ success: true, orderId: order.id });
