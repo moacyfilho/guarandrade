@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
+import { getStartDateManaus } from '@/lib/dateUtils';
 
 export default function Financeiro() {
     const [transactions, setTransactions] = useState<any[]>([]);
@@ -30,24 +31,14 @@ export default function Financeiro() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'receivable'>('overview');
 
-    const getStartDate = (rng: string) => {
-        const now = new Date();
-        if (rng === 'daily') {
-            return now.toISOString().split('T')[0];
-        } else if (rng === 'weekly') {
-            const lastWeek = new Date(now.setDate(now.getDate() - 7));
-            return lastWeek.toISOString().split('T')[0];
-        } else {
-            const lastMonth = new Date(now.setDate(now.getDate() - 30));
-            return lastMonth.toISOString().split('T')[0];
-        }
-    };
+    // getStartDate removido — usar getStartDateManaus de @/lib/dateUtils
 
     // ... existing fetch logic ...
 
     const fetchData = async () => {
         setLoading(true);
-        const startDate = getStartDate(range);
+        // Usa horário de Manaus (UTC-4) — sem isso o faturamento some após 20h
+        const startDate = getStartDateManaus(range);
 
         // ... existing order fetching ...
         const { data: orders } = await supabase

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { getTodayStartManaus } from '@/lib/dateUtils';
 
 export default function Home() {
     const [stats, setStats] = useState([
@@ -18,12 +19,13 @@ export default function Home() {
     const [loading, setLoading] = useState(true);
 
     const fetchData = async () => {
-        const today = new Date().toISOString().split('T')[0];
+        // Usa horário de Manaus (UTC-4) para não cortar o faturamento após 20h
+        const todayManaus = getTodayStartManaus();
 
         const { count: ordersCount } = await supabase
             .from('orders')
             .select('*', { count: 'exact', head: true })
-            .gte('created_at', today);
+            .gte('created_at', todayManaus);
 
         const { data: tablesData } = await supabase
             .from('tables')
@@ -36,7 +38,7 @@ export default function Home() {
         const { data: revenueData } = await supabase
             .from('orders')
             .select('total_amount')
-            .gte('created_at', today)
+            .gte('created_at', todayManaus)
             .neq('status', 'cancelado');
 
         const totalRevenue = revenueData?.reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0) || 0;
