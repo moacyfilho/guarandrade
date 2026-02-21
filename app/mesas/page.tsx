@@ -12,6 +12,7 @@ interface Product {
     name: string;
     price: string | number;
     category_id?: string;
+    category_name?: string; // nome da categoria para busca
 }
 
 interface OrderItem {
@@ -56,18 +57,30 @@ function ProductSearchModal({
     useEffect(() => {
         supabase
             .from('products')
-            .select('id, name, price, category_id')
+            .select('id, name, price, category_id, categories(name)')
             .order('name', { ascending: true })
             .then(({ data }) => {
-                if (data) setProducts(data);
+                if (data) {
+                    // Achatar o campo categories para category_name
+                    const normalized = data.map((p: any) => ({
+                        ...p,
+                        category_name: p.categories?.name || '',
+                    }));
+                    setProducts(normalized);
+                }
             });
         setTimeout(() => inputRef.current?.focus(), 100);
     }, []);
 
     const filtered = query.trim()
-        ? products.filter(p =>
-            p.name.toLowerCase().includes(query.toLowerCase())
-        )
+        ? products.filter(p => {
+            const q = query.toLowerCase();
+            // Busca por nome do produto OU nome da categoria
+            return (
+                p.name.toLowerCase().includes(q) ||
+                (p.category_name || '').toLowerCase().includes(q)
+            );
+        })
         : products;
 
     const addToCart = (product: Product) => {
@@ -274,9 +287,23 @@ function ProductSearchModal({
                                 >
                                     <div style={{ flex: 1 }}>
                                         <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{p.name}</p>
-                                        <p style={{ fontSize: 11, color: 'var(--price-color)', fontWeight: 800, marginTop: 1 }}>
-                                            R$ {Number(p.price).toFixed(2).replace('.', ',')}
-                                        </p>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                                            <p style={{ fontSize: 12, color: 'var(--price-color)', fontWeight: 800 }}>
+                                                R$ {Number(p.price).toFixed(2).replace('.', ',')}
+                                            </p>
+                                            {p.category_name && (
+                                                <span style={{
+                                                    fontSize: 9, fontWeight: 700,
+                                                    color: 'var(--text-muted)',
+                                                    background: 'rgba(255,255,255,0.06)',
+                                                    border: '1px solid rgba(255,255,255,0.08)',
+                                                    borderRadius: 6, padding: '1px 6px',
+                                                    textTransform: 'uppercase', letterSpacing: '0.04em',
+                                                }}>
+                                                    {p.category_name}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {inCart ? (
