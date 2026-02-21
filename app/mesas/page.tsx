@@ -17,6 +17,7 @@ interface Product {
 
 interface OrderItem {
     id?: string;
+    order_id?: string;
     quantity: number;
     unit_price: number;
     products?: { name: string };
@@ -540,6 +541,57 @@ export default function Mesas() {
         }
     };
 
+    const handleUpdateItemQty = async (item: OrderItem, delta: number) => {
+        if (!receiptModal) return;
+        const newQty = item.quantity + delta;
+        if (newQty <= 0) {
+            await handleDeleteItem(item, false);
+            return;
+        }
+        const updatedItems = receiptModal.order.items.map((i: OrderItem) =>
+            i.id === item.id ? { ...i, quantity: newQty } : i
+        );
+        const newTotal = updatedItems.reduce(
+            (acc: number, i: OrderItem) => acc + (Number(i.unit_price || 0) * Number(i.quantity || 0)), 0
+        );
+        const snapshot = { items: receiptModal.order.items, total_amount: receiptModal.order.total_amount };
+        setReceiptModal((prev: any) => ({ ...prev, order: { ...prev.order, items: updatedItems, total_amount: newTotal } }));
+        const { error } = await supabase.from('order_items').update({ quantity: newQty }).eq('id', item.id);
+        if (error) {
+            alert('Erro ao atualizar item: ' + error.message);
+            setReceiptModal((prev: any) => ({ ...prev, order: { ...prev.order, items: snapshot.items, total_amount: snapshot.total_amount } }));
+            return;
+        }
+        if (!receiptModal.table.isCounter) {
+            supabase.from('tables').update({ total_amount: newTotal }).eq('id', receiptModal.table.id)
+                .then(() => setTables(prev => prev.map(t => t.id === receiptModal.table.id ? { ...t, total_amount: newTotal } : t)));
+        }
+    };
+
+    const handleDeleteItem = async (item: OrderItem, askConfirm: boolean) => {
+        if (!receiptModal) return;
+        if (askConfirm && !confirm(`Remover "${item.products?.name || 'este item'}"?`)) return;
+        const updatedItems = receiptModal.order.items.filter((i: OrderItem) => i.id !== item.id);
+        const newTotal = updatedItems.reduce(
+            (acc: number, i: OrderItem) => acc + (Number(i.unit_price || 0) * Number(i.quantity || 0)), 0
+        );
+        if (updatedItems.length === 0) {
+            setReceiptModal(null);
+            await supabase.from('order_items').delete().eq('id', item.id);
+            if (!receiptModal.table.isCounter) {
+                await supabase.from('tables').update({ status: 'available', total_amount: 0 }).eq('id', receiptModal.table.id);
+                setTables(prev => prev.map(t => t.id === receiptModal.table.id ? { ...t, status: 'available', total_amount: 0 } : t));
+            }
+            return;
+        }
+        setReceiptModal((prev: any) => ({ ...prev, order: { ...prev.order, items: updatedItems, total_amount: newTotal } }));
+        await supabase.from('order_items').delete().eq('id', item.id);
+        if (!receiptModal.table.isCounter) {
+            supabase.from('tables').update({ total_amount: newTotal }).eq('id', receiptModal.table.id)
+                .then(() => setTables(prev => prev.map(t => t.id === receiptModal.table.id ? { ...t, total_amount: newTotal } : t)));
+        }
+    };
+
     const handleLiberarMesa = async (id: number) => {
         await supabase.from('tables').update({ status: 'available' }).eq('id', id);
         fetchData();
@@ -795,18 +847,44 @@ export default function Mesas() {
 
                         <div style={{ padding: '16px 20px', maxHeight: '40vh', overflowY: 'auto' }}>
                             {receiptModal.order.items.map((item: any, i: number) => (
-                                <div key={i} style={{
+                                <div key={item.id ?? i} style={{
                                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                     padding: '9px 0',
                                     borderBottom: i < receiptModal.order.items.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                                    gap: 8,
                                 }}>
-                                    <div>
-                                        <p style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>{item.quantity}× {item.products?.name || 'Produto'}</p>
+                                    {/* Nome + preço unitário */}
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <p style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {item.products?.name || 'Produto'}
+                                        </p>
                                         <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>R$ {parseFloat(item.unit_price || 0).toFixed(2).replace('.', ',')}/un</p>
                                     </div>
-                                    <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
-                                        R$ {(item.quantity * (item.unit_price || 0)).toFixed(2).replace('.', ',')}
-                                    </span>
+                                    {/* Controles de quantidade */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                        <button
+                                            onClick={() => handleUpdateItemQty(item, -1)}
+                                            style={{ width: 26, height: 26, borderRadius: 7, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                        >−</button>
+                                        <span style={{ fontSize: 13, fontWeight: 800, minWidth: 18, textAlign: 'center', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                                            {item.quantity}
+                                        </span>
+                                        <button
+                                            onClick={() => handleUpdateItemQty(item, +1)}
+                                            style={{ width: 26, height: 26, borderRadius: 7, background: 'linear-gradient(135deg, #EA1D2C, #C8101E)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 6px rgba(234,29,44,0.35)' }}
+                                        >+</button>
+                                    </div>
+                                    {/* Total da linha + lixeira */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                                        <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                                            R$ {(item.quantity * (item.unit_price || 0)).toFixed(2).replace('.', ',')}
+                                        </span>
+                                        <button
+                                            onClick={() => handleDeleteItem(item, true)}
+                                            title="Remover item"
+                                            style={{ width: 26, height: 26, borderRadius: 7, background: 'rgba(234,29,44,0.1)', border: '1px solid rgba(234,29,44,0.2)', color: 'var(--danger)', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                        >🗑</button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
