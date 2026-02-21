@@ -410,9 +410,29 @@ export default function Mesas() {
 
         if (tablesData) {
             const tablesWithRealTotal = tablesData.map((table: any) => {
-                if (table.status !== 'occupied') return table;
                 const tableOrders = tableOrdersFilter.filter(o => o.table_id === table.id);
+                const hasActiveOrders = tableOrders.length > 0;
                 const realTotal = tableOrders.reduce((acc, curr) => acc + Number(curr.total_amount || 0), 0);
+
+                // Auto-correct: if table has active orders but wrong status, fix it silently
+                if (hasActiveOrders && table.status !== 'occupied') {
+                    supabase.from('tables')
+                        .update({ status: 'occupied', total_amount: realTotal })
+                        .eq('id', table.id)
+                        .then(() => { }); // fire-and-forget
+                    return { ...table, status: 'occupied', total_amount: realTotal };
+                }
+
+                // Auto-correct: if table is 'occupied' but has NO active orders, mark as dirty
+                if (!hasActiveOrders && table.status === 'occupied') {
+                    supabase.from('tables')
+                        .update({ status: 'dirty', total_amount: 0 })
+                        .eq('id', table.id)
+                        .then(() => { });
+                    return { ...table, status: 'dirty', total_amount: 0 };
+                }
+
+                if (table.status !== 'occupied') return table;
                 return { ...table, total_amount: realTotal };
             });
             setTables(tablesWithRealTotal);
