@@ -27,7 +27,7 @@ export function useRealtimeSync(
 ) {
     const {
         tables,
-        pollInterval = 5000,
+        pollInterval = 3000,
         channelName,
         refreshOnFocus = true,
     } = options;

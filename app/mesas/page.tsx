@@ -113,23 +113,25 @@ function ProductSearchModal({
         setSaving(true);
 
         try {
-            // 1. Sempre busca FRESH no banco se já existe pedido ativo para esta mesa
-            //    (ignora o status local do objeto table que pode estar desatualizado)
+            // 1. Busca se já existe pedido ativo (1 query)
             const { data: existingOrders } = await supabase
                 .from('orders')
-                .select('id')
+                .select('id, total_amount')
                 .eq('table_id', table.id)
                 .neq('status', 'finalizado')
-                .order('created_at', { ascending: true }) // pega o mais antigo
+                .order('created_at', { ascending: true })
                 .limit(1);
 
             let orderId: string;
+            // Calcula total novo localmente (sem round-trip extra)
+            const newItemsTotal = cartTotal; // cartTotal já calculado no estado
+            const existingTotal = existingOrders?.[0] ? Number(existingOrders[0].total_amount || 0) : 0;
+            const orderTotal = existingTotal + newItemsTotal;
 
             if (existingOrders && existingOrders.length > 0) {
-                // Reusa o pedido já existente — NÃO cria novo
                 orderId = existingOrders[0].id;
             } else {
-                // Cria pedido novo (mesa sem nenhum pedido ativo)
+                // Cria pedido novo (2ª query)
                 const { data: newOrder, error: orderErr } = await supabase
                     .from('orders')
                     .insert({ table_id: table.id, status: 'fila', total_amount: 0 })
@@ -140,50 +142,29 @@ function ProductSearchModal({
                 orderId = newOrder.id;
             }
 
-            // 2. Insere os itens no pedido
-            const items = cart.map(c => ({
-                order_id: orderId,
-                product_id: c.product.id,
-                quantity: c.qty,
-                unit_price: Number(c.product.price),
-            }));
-
+            // 2. Insere itens (3ª query)
             const { error: itemsErr } = await supabase
                 .from('order_items')
-                .insert(items);
+                .insert(cart.map(c => ({
+                    order_id: orderId,
+                    product_id: c.product.id,
+                    quantity: c.qty,
+                    unit_price: Number(c.product.price),
+                })));
 
             if (itemsErr) throw new Error('Erro ao inserir itens: ' + itemsErr.message);
 
-            // 3. Recalcula o total do pedido diretamente dos itens (source of truth)
-            const { data: allItems } = await supabase
-                .from('order_items')
-                .select('quantity, unit_price')
-                .eq('order_id', orderId);
-
-            const orderTotal = (allItems || []).reduce(
-                (acc, i) => acc + (Number(i.unit_price) * Number(i.quantity)), 0
-            );
-
-            await supabase
-                .from('orders')
-                .update({ total_amount: orderTotal, status: 'fila' })
-                .eq('id', orderId);
-
-            // 4. Atualiza o total da mesa somando todos os pedidos ativos
-            const { data: activeOrdersForTable } = await supabase
-                .from('orders')
-                .select('total_amount')
-                .eq('table_id', table.id)
-                .neq('status', 'finalizado');
-
-            const tableTotal = (activeOrdersForTable || []).reduce(
-                (acc, o) => acc + Number(o.total_amount || 0), 0
-            );
-
-            await supabase
-                .from('tables')
-                .update({ status: 'occupied', total_amount: tableTotal })
-                .eq('id', table.id);
+            // 3. Atualiza pedido e mesa em PARALELO (antes era sequencial)
+            await Promise.all([
+                supabase
+                    .from('orders')
+                    .update({ total_amount: orderTotal, status: 'fila' })
+                    .eq('id', orderId),
+                supabase
+                    .from('tables')
+                    .update({ status: 'occupied', total_amount: orderTotal })
+                    .eq('id', table.id),
+            ]);
 
             onSuccess();
             onClose();
@@ -193,6 +174,7 @@ function ProductSearchModal({
             setSaving(false);
         }
     };
+
 
     return (
         <div className="modal-overlay" onClick={onClose}>
@@ -415,24 +397,31 @@ export default function Mesas() {
 
     const fetchData = async (showLoading = true) => {
         if (showLoading) setLoading(true);
-        const { data: tablesData } = await supabase
-            .from('tables')
-            .select('*')
-            .order('id', { ascending: true });
 
-        const { data: counterData } = await supabase
-            .from('orders')
-            .select(`*, order_items (*, products (name))`)
-            .is('table_id', null)
-            .neq('status', 'finalizado')
-            .order('created_at', { ascending: false });
+        // ⚡ Executa as 3 queries em PARALELO (antes era sequencial = 3x mais lento)
+        const [
+            { data: tablesData },
+            { data: counterData },
+            { data: activeOrders },
+        ] = await Promise.all([
+            supabase
+                .from('tables')
+                .select('*')
+                .order('id', { ascending: true }),
+            supabase
+                .from('orders')
+                .select(`*, order_items (*, products (name))`)
+                .is('table_id', null)
+                .neq('status', 'finalizado')
+                .order('created_at', { ascending: false }),
+            supabase
+                .from('orders')
+                .select(`id, table_id, status, total_amount`)
+                .neq('status', 'finalizado')
+                .not('table_id', 'is', null),
+        ]);
 
-        const { data: activeOrders } = await supabase
-            .from('orders')
-            .select(`*, order_items (id)`)
-            .neq('status', 'finalizado');
-
-        const tableOrdersFilter = activeOrders?.filter(o => o.table_id !== null) || [];
+        const tableOrdersFilter = activeOrders || [];
 
         if (tablesData) {
             const tablesWithRealTotal = tablesData.map((table: any) => {
@@ -476,7 +465,7 @@ export default function Mesas() {
     useRealtimeSync(() => fetchData(false), {
         channelName: 'mesas_realtime',
         tables: ['tables', 'orders', 'order_items'],
-        pollInterval: 4000,
+        pollInterval: 2000,
     });
 
     const handleOpenReceipt = async (table: any, isCounter: boolean = false) => {
