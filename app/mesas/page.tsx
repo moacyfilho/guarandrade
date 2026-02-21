@@ -96,54 +96,38 @@ function ProductSearchModal({
     );
 
     const handleConfirm = async () => {
-        if (cart.length === 0) return;
+        if (cart.length === 0 || saving) return;
         setSaving(true);
 
         try {
-            // Check if there's an active order for this table
+            // 1. Sempre busca FRESH no banco se já existe pedido ativo para esta mesa
+            //    (ignora o status local do objeto table que pode estar desatualizado)
             const { data: existingOrders } = await supabase
                 .from('orders')
-                .select('id, total_amount')
+                .select('id')
                 .eq('table_id', table.id)
                 .neq('status', 'finalizado')
+                .order('created_at', { ascending: true }) // pega o mais antigo
                 .limit(1);
 
             let orderId: string;
-            const tableTotal = cartTotal + (existingOrders?.[0]?.total_amount || 0);
 
             if (existingOrders && existingOrders.length > 0) {
-                // Use existing order
+                // Reusa o pedido já existente — NÃO cria novo
                 orderId = existingOrders[0].id;
-                // Update existing order total
-                await supabase
-                    .from('orders')
-                    .update({
-                        total_amount: tableTotal,
-                        status: 'fila',
-                    })
-                    .eq('id', orderId);
             } else {
-                // Create new order and mark table as occupied
+                // Cria pedido novo (mesa sem nenhum pedido ativo)
                 const { data: newOrder, error: orderErr } = await supabase
                     .from('orders')
-                    .insert({
-                        table_id: table.id,
-                        status: 'fila',
-                        total_amount: cartTotal,
-                    })
-                    .select()
+                    .insert({ table_id: table.id, status: 'fila', total_amount: 0 })
+                    .select('id')
                     .single();
 
-                if (orderErr || !newOrder) throw new Error('Erro ao criar pedido');
+                if (orderErr || !newOrder) throw new Error('Erro ao criar pedido: ' + orderErr?.message);
                 orderId = newOrder.id;
-
-                await supabase
-                    .from('tables')
-                    .update({ status: 'occupied', total_amount: cartTotal })
-                    .eq('id', table.id);
             }
 
-            // Insert order items
+            // 2. Insere os itens no pedido
             const items = cart.map(c => ({
                 order_id: orderId,
                 product_id: c.product.id,
@@ -155,22 +139,37 @@ function ProductSearchModal({
                 .from('order_items')
                 .insert(items);
 
-            if (itemsErr) throw new Error('Erro ao inserir itens');
+            if (itemsErr) throw new Error('Erro ao inserir itens: ' + itemsErr.message);
 
-            // Update table total (sum of all active orders)
-            const { data: allOrders } = await supabase
+            // 3. Recalcula o total do pedido diretamente dos itens (source of truth)
+            const { data: allItems } = await supabase
+                .from('order_items')
+                .select('quantity, unit_price')
+                .eq('order_id', orderId);
+
+            const orderTotal = (allItems || []).reduce(
+                (acc, i) => acc + (Number(i.unit_price) * Number(i.quantity)), 0
+            );
+
+            await supabase
+                .from('orders')
+                .update({ total_amount: orderTotal, status: 'fila' })
+                .eq('id', orderId);
+
+            // 4. Atualiza o total da mesa somando todos os pedidos ativos
+            const { data: activeOrdersForTable } = await supabase
                 .from('orders')
                 .select('total_amount')
                 .eq('table_id', table.id)
                 .neq('status', 'finalizado');
 
-            const newTotal = (allOrders || []).reduce(
+            const tableTotal = (activeOrdersForTable || []).reduce(
                 (acc, o) => acc + Number(o.total_amount || 0), 0
             );
 
             await supabase
                 .from('tables')
-                .update({ status: 'occupied', total_amount: newTotal })
+                .update({ status: 'occupied', total_amount: tableTotal })
                 .eq('id', table.id);
 
             onSuccess();
