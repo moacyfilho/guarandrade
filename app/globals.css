@@ -767,6 +767,50 @@ option {
     }
 }
 
+/* Mobile layout improvements for mesas page */
+@media (max-width: 600px) {
+
+    /* Tighten the outer wrapper padding on small screens */
+    body>div,
+    #__next>div {
+        padding: 0 !important;
+    }
+
+    /* Make the main content take full width on mobile */
+    main {
+        padding-right: 0 !important;
+    }
+
+    /* Ensure modal overlays use dynamic viewport */
+    .modal-overlay {
+        padding: 0.5rem;
+        align-items: flex-end;
+    }
+
+    /* Taller modal on mobile, slide-up effect */
+    .modal-content {
+        max-width: 100% !important;
+        border-radius: 20px 20px 0 0 !important;
+        max-height: 90dvh;
+    }
+
+    /* Buttons: bigger touch targets on mobile */
+    .btn {
+        min-height: 44px;
+        font-size: 0.72rem;
+    }
+}
+
+/* Product search modal — mobile slide up */
+@media (max-width: 640px) {
+    .product-search-modal {
+        border-radius: 20px 20px 0 0 !important;
+        max-height: 92dvh !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+}
+
 /* Color Utilities (kept for compatibility) */
 .bg-indigo-600 {
     background-color: #4f46e5;
