@@ -416,7 +416,7 @@ export default function Mesas() {
                 .order('created_at', { ascending: false }),
             supabase
                 .from('orders')
-                .select(`id, table_id, status, total_amount`)
+                .select(`id, table_id, status, total_amount, order_items (unit_price, quantity)`)
                 .neq('status', 'finalizado')
                 .not('table_id', 'is', null),
         ]);
@@ -427,7 +427,8 @@ export default function Mesas() {
             const tablesWithRealTotal = tablesData.map((table: any) => {
                 const tableOrders = tableOrdersFilter.filter(o => o.table_id === table.id);
                 const hasActiveOrders = tableOrders.length > 0;
-                const realTotal = tableOrders.reduce((acc, curr) => acc + Number(curr.total_amount || 0), 0);
+                const allItems = tableOrders.flatMap((o: any) => o.order_items || []);
+                const realTotal = allItems.reduce((acc: number, item: any) => acc + (Number(item.unit_price || 0) * Number(item.quantity || 0)), 0);
 
                 // Auto-correct: if table has active orders but wrong status, fix it silently
                 if (hasActiveOrders && table.status !== 'occupied') {
