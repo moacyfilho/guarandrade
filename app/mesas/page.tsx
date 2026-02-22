@@ -119,7 +119,7 @@ function ProductSearchModal({
                 .from('orders')
                 .select('id, total_amount')
                 .eq('table_id', table.id)
-                .neq('status', 'finalizado')
+                .in('status', ['fila', 'preparando', 'pronto'])
                 .order('created_at', { ascending: true })
                 .limit(1);
 
@@ -593,7 +593,8 @@ export default function Mesas() {
     };
 
     const handleLiberarMesa = async (id: number) => {
-        await supabase.from('tables').update({ status: 'available' }).eq('id', id);
+        await supabase.from('orders').update({ status: 'finalizado' }).eq('table_id', id).neq('status', 'finalizado');
+        await supabase.from('tables').update({ status: 'available', total_amount: 0 }).eq('id', id);
         fetchData();
     };
 
