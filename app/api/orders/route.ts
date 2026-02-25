@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
+// Aumenta timeout para 60s no Vercel (padrão é 10s no plano Hobby)
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
     try {
         const body = await request.json();
@@ -15,7 +18,7 @@ export async function POST(request: Request) {
         const productIds = items.map((i: any) => i.product_id);
         const { data: products, error: productsError } = await supabase
             .from('products')
-            .select('id, price, stock_quantity')
+            .select('id, price')
             .in('id', productIds);
 
         if (productsError || !products || products.length === 0) {
@@ -39,7 +42,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Nenhum item válido encontrado.' }, { status: 400 });
         }
 
-        // 4. Busca pedido ativo existente para a mesa (evita criar pedidos duplicados)
+        // 4. Busca pedido ativo existente para a mesa
         const { data: existingOrders } = await supabase
             .from('orders')
             .select('id')
@@ -52,10 +55,8 @@ export async function POST(request: Request) {
         let createdNewOrder = false;
 
         if (existingOrders && existingOrders.length > 0) {
-            // Reutiliza pedido ativo existente
             orderId = existingOrders[0].id;
         } else {
-            // Cria pedido novo
             const { data: newOrder, error: orderError } = await supabase
                 .from('orders')
                 .insert({ table_id, status: 'fila', total_amount: 0 })
@@ -70,13 +71,12 @@ export async function POST(request: Request) {
             createdNewOrder = true;
         }
 
-        // 5. Insere itens — com rollback se falhar
+        // 5. Insere itens com rollback automático se falhar
         const { error: itemsError } = await supabase
             .from('order_items')
             .insert(finalItems.map((item: any) => ({ order_id: orderId, ...item })));
 
         if (itemsError) {
-            // ROLLBACK: remove o pedido vazio para não deixar pedido fantasma
             if (createdNewOrder) {
                 await supabase.from('orders').delete().eq('id', orderId);
             }
@@ -86,49 +86,12 @@ export async function POST(request: Request) {
             );
         }
 
-        // 6. Recalcula total real somando TODOS os order_items de pedidos ativos da mesa
-        const { data: activeOrders } = await supabase
-            .from('orders')
-            .select('id')
-            .eq('table_id', table_id)
-            .neq('status', 'finalizado');
-
-        const activeOrderIds = (activeOrders || []).map((o: any) => o.id);
-
-        const { data: allActiveItems } = await supabase
-            .from('order_items')
-            .select('unit_price, quantity')
-            .in('order_id', activeOrderIds);
-
-        const realTotal = (allActiveItems || []).reduce(
-            (acc: number, item: any) =>
-                acc + Number(item.unit_price) * Number(item.quantity),
-            0
-        );
-
-        // 7. Atualiza pedido e mesa em paralelo
-        await Promise.all([
-            supabase
-                .from('orders')
-                .update({ total_amount: realTotal, status: 'fila' })
-                .eq('id', orderId),
-            supabase
-                .from('tables')
-                .update({ status: 'occupied', total_amount: realTotal })
-                .eq('id', table_id),
-        ]);
-
-        // 8. Atualiza estoque dos produtos
-        for (const item of finalItems as any[]) {
-            const product = products.find((p: any) => p.id === item.product_id);
-            if (product) {
-                const newStock = (product.stock_quantity || 0) - item.quantity;
-                await supabase
-                    .from('products')
-                    .update({ stock_quantity: newStock })
-                    .eq('id', item.product_id);
-            }
-        }
+        // 6. Marca mesa como ocupada
+        // (total_amount é recalculado automaticamente pelo fetchData via useRealtimeSync em até 2s)
+        await supabase
+            .from('tables')
+            .update({ status: 'occupied' })
+            .eq('id', table_id);
 
         return NextResponse.json({ success: true, orderId });
 
