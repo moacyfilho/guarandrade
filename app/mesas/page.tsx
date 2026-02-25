@@ -600,7 +600,7 @@ export default function Mesas() {
     );
 
     return (
-        <div style={{ display: 'flex', height: '100vh', padding: 16, gap: 16, position: 'relative' }}>
+        <div className="page-mesas" style={{ display: 'flex', height: '100vh', padding: 16, gap: 16, position: 'relative' }}>
             <Sidebar />
 
             <main style={{ flex: 1, overflowY: 'auto', paddingRight: 8 }}>
@@ -722,10 +722,10 @@ export default function Mesas() {
                                 {/* Table header */}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                                     <div>
-                                        <h3 style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 3 }}>{table.name}</h3>
+                                        <h3 className="mesa-name" style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 3 }}>{table.name}</h3>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                             <span className={`status-dot ${isOccupied ? 'status-dot-danger' : isDirty ? 'status-dot-warning' : 'status-dot-success'}`} />
-                                            <span style={{ fontSize: 9, fontWeight: 700, color: statusColor, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                            <span className="mesa-status" style={{ fontSize: 9, fontWeight: 700, color: statusColor, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                                 {isOccupied ? 'Ocupada' : isDirty ? 'Limpeza' : 'Livre'}
                                             </span>
                                         </div>
@@ -739,13 +739,13 @@ export default function Mesas() {
                                 <div style={{ marginBottom: 14 }}>
                                     {isOccupied ? (
                                         <div>
-                                            <p style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Total</p>
-                                            <p style={{ fontSize: 22, fontWeight: 900, color: 'var(--price-color)', letterSpacing: '-0.03em', fontFamily: 'monospace' }}>
+                                            <p className="mesa-total-lbl" style={{ fontSize: 9, color: 'var(--text-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>Total</p>
+                                            <p className="mesa-total" style={{ fontSize: 22, fontWeight: 900, color: 'var(--price-color)', letterSpacing: '-0.03em', fontFamily: 'monospace' }}>
                                                 R$ {parseFloat(String(table.total_amount)).toFixed(2).replace('.', ',')}
                                             </p>
                                         </div>
                                     ) : (
-                                        <p style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 500 }}>
+                                        <p className="mesa-msg" style={{ fontSize: 11, color: 'var(--text-faint)', fontWeight: 500 }}>
                                             {isDirty ? 'Aguardando limpeza' : 'Pronta para uso'}
                                         </p>
                                     )}
@@ -844,10 +844,10 @@ export default function Mesas() {
                                 }}>
                                     {/* Nome + preço unitário */}
                                     <div style={{ flex: 1, minWidth: 0 }}>
-                                        <p style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        <p className="rcpt-item-name" style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                             {item.products?.name || 'Produto'}
                                         </p>
-                                        <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>R$ {parseFloat(item.unit_price || 0).toFixed(2).replace('.', ',')}/un</p>
+                                        <p className="rcpt-unit-price" style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'monospace' }}>R$ {parseFloat(item.unit_price || 0).toFixed(2).replace('.', ',')}/un</p>
                                     </div>
                                     {/* Controles de quantidade */}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
@@ -855,7 +855,7 @@ export default function Mesas() {
                                             onClick={() => handleUpdateItemQty(item, -1)}
                                             style={{ width: 26, height: 26, borderRadius: 7, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                         >−</button>
-                                        <span style={{ fontSize: 13, fontWeight: 800, minWidth: 18, textAlign: 'center', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                                        <span className="rcpt-qty" style={{ fontSize: 13, fontWeight: 800, minWidth: 18, textAlign: 'center', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
                                             {item.quantity}
                                         </span>
                                         <button
@@ -865,7 +865,7 @@ export default function Mesas() {
                                     </div>
                                     {/* Total da linha + lixeira */}
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                                        <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                                        <span className="rcpt-line-total" style={{ fontWeight: 800, fontSize: 13, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
                                             R$ {(item.quantity * (item.unit_price || 0)).toFixed(2).replace('.', ',')}
                                         </span>
                                         <button
@@ -880,8 +880,8 @@ export default function Mesas() {
 
                         <div style={{ padding: '16px 20px', background: 'var(--bg-card)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: 14, marginBottom: 16 }}>
-                                <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>Total a Pagar</span>
-                                <span style={{ fontSize: 26, fontWeight: 900, color: 'var(--price-color)', fontFamily: 'monospace' }}>
+                                <span className="rcpt-total-lbl" style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.15em' }}>Total a Pagar</span>
+                                <span className="rcpt-total" style={{ fontSize: 26, fontWeight: 900, color: 'var(--price-color)', fontFamily: 'monospace' }}>
                                     R$ {parseFloat(receiptModal.order.total_amount).toFixed(2).replace('.', ',')}
                                 </span>
                             </div>

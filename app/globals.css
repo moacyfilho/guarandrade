@@ -797,8 +797,33 @@ option {
     /* Buttons: bigger touch targets on mobile */
     .btn {
         min-height: 44px;
-        font-size: 0.72rem;
+        font-size: 0.82rem;
     }
+
+    /* ── Cozinha — fonte maior para leitura na cozinha ── */
+    .page-cozinha h1        { font-size: 22px !important; }
+    .page-cozinha h3        { font-size: 20px !important; }
+    .coz-order-id           { font-size: 13px !important; }
+    .coz-badge              { font-size: 13px !important; padding: 5px 12px !important; }
+    .coz-timer              { font-size: 14px !important; }
+    .coz-qty                { font-size: 15px !important; width: 34px !important; height: 34px !important; }
+    .coz-item-name          { font-size: 18px !important; }
+    .coz-action-btn         { font-size: 15px !important; padding: 18px 0 !important; }
+
+    /* ── Mesas — cards ── */
+    .mesa-name              { font-size: 20px !important; }
+    .mesa-status            { font-size: 12px !important; }
+    .mesa-total-lbl         { font-size: 11px !important; }
+    .mesa-total             { font-size: 26px !important; }
+    .mesa-msg               { font-size: 13px !important; }
+
+    /* ── Mesas — Resumo da Conta ── */
+    .rcpt-item-name         { font-size: 16px !important; }
+    .rcpt-unit-price        { font-size: 13px !important; }
+    .rcpt-qty               { font-size: 16px !important; }
+    .rcpt-line-total        { font-size: 15px !important; }
+    .rcpt-total-lbl         { font-size: 13px !important; }
+    .rcpt-total             { font-size: 30px !important; }
 }
 
 /* Product search modal — mobile slide up */

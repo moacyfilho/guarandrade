@@ -138,7 +138,7 @@ export default function Cozinha() {
     );
 
     return (
-        <div style={{ display: 'flex', height: '100vh', padding: 16, gap: 16 }}>
+        <div className="page-cozinha" style={{ display: 'flex', height: '100vh', padding: 16, gap: 16 }}>
             <Sidebar />
             <main style={{ flex: 1, overflowY: 'auto', paddingRight: 8 }}>
                 {/* Header */}
@@ -290,12 +290,12 @@ export default function Cozinha() {
                                             <h3 style={{ fontWeight: 800, fontSize: 16, color: 'var(--text-primary)', marginBottom: 2 }}>
                                                 {order.tables?.name || '🛍️ Balcão'}
                                             </h3>
-                                            <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                            <span className="coz-order-id" style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                                 #{order.id.slice(0, 6)}
                                             </span>
                                         </div>
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                                            <span style={{
+                                            <span className="coz-badge" style={{
                                                 padding: '4px 10px',
                                                 borderRadius: 8,
                                                 background: cfg.bg,
@@ -306,7 +306,7 @@ export default function Cozinha() {
                                                 color: cfg.color,
                                                 letterSpacing: '0.05em',
                                             }}>{cfg.label}</span>
-                                            <span style={{
+                                            <span className="coz-timer" style={{
                                                 fontSize: 11,
                                                 fontWeight: 700,
                                                 color: isUrgent && order.status !== 'pronto' ? 'var(--price-color)' : 'var(--text-muted)',
@@ -327,7 +327,7 @@ export default function Cozinha() {
                                                 borderBottom: i < order.order_items.length - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none',
                                             }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                    <span style={{
+                                                    <span className="coz-qty" style={{
                                                         width: 28,
                                                         height: 28,
                                                         borderRadius: 8,
@@ -339,7 +339,7 @@ export default function Cozinha() {
                                                         fontWeight: 900,
                                                         color: 'var(--price-color)',
                                                     }}>{item.quantity}x</span>
-                                                    <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>{item.products?.name || 'Item'}</span>
+                                                    <span className="coz-item-name" style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>{item.products?.name || 'Item'}</span>
                                                 </div>
                                             </div>
                                         ))}
@@ -348,6 +348,7 @@ export default function Cozinha() {
                                     {/* Action Button */}
                                     <div style={{ padding: '12px 20px 20px' }}>
                                         <button
+                                            className="coz-action-btn"
                                             onClick={() => updateStatus(order.id, order.status)}
                                             style={{
                                                 width: '100%',
