@@ -389,21 +389,27 @@ export default function Mesas() {
         if (tablesData) {
             const tablesWithRealTotal = tablesData.map((table: any) => {
                 const tableOrders = tableOrdersFilter.filter(o => o.table_id === table.id);
-                const hasActiveOrders = tableOrders.length > 0;
                 const allItems = tableOrders.flatMap((o: any) => o.order_items || []);
                 const realTotal = allItems.reduce((acc: number, item: any) => acc + (Number(item.unit_price || 0) * Number(item.quantity || 0)), 0);
+                const hasRealItems = allItems.length > 0;
 
-                // Auto-correct: if table has active orders but wrong status, fix it silently
-                if (hasActiveOrders && table.status !== 'occupied') {
+                // Cleanup: pedidos sem itens são fantasmas — finaliza silenciosamente
+                const ghostOrders = tableOrders.filter((o: any) => (o.order_items || []).length === 0);
+                if (ghostOrders.length > 0) {
+                    const ghostIds = ghostOrders.map((o: any) => o.id);
+                    supabase.from('orders').update({ status: 'finalizado' }).in('id', ghostIds).then(() => { });
+                }
+
+                // Auto-correct baseado em itens reais, não apenas existência de pedidos
+                if (hasRealItems && table.status !== 'occupied') {
                     supabase.from('tables')
                         .update({ status: 'occupied', total_amount: realTotal })
                         .eq('id', table.id)
-                        .then(() => { }); // fire-and-forget
+                        .then(() => { });
                     return { ...table, status: 'occupied', total_amount: realTotal };
                 }
 
-                // Auto-correct: if table is 'occupied' but has NO active orders, mark as dirty
-                if (!hasActiveOrders && table.status === 'occupied') {
+                if (!hasRealItems && table.status === 'occupied') {
                     supabase.from('tables')
                         .update({ status: 'dirty', total_amount: 0 })
                         .eq('id', table.id)
@@ -490,16 +496,19 @@ export default function Mesas() {
         const { table, order } = receiptModal;
         try {
             if (!table.isCounter) {
-                // Re-busca todos os pedidos ativos da mesa no momento do pagamento
-                // para garantir que pedidos criados após a abertura do modal também sejam finalizados
+                // Combina fresh fetch + originalOrders: garante finalização mesmo se um falhar
                 const { data: freshOrders } = await supabase
                     .from('orders')
                     .select('id')
                     .eq('table_id', table.id)
                     .neq('status', 'finalizado');
-                const freshIds = (freshOrders || []).map((o: any) => o.id);
-                if (freshIds.length > 0) {
-                    await supabase.from('orders').update({ status: 'finalizado' }).in('id', freshIds);
+                const idSet = new Set<string>([
+                    ...order.originalOrders.map((o: any) => String(o.id)),
+                    ...(freshOrders || []).map((o: any) => String(o.id)),
+                ]);
+                const allIds = Array.from(idSet);
+                if (allIds.length > 0) {
+                    await supabase.from('orders').update({ status: 'finalizado' }).in('id', allIds);
                 }
                 await supabase.from('tables').update({ status: 'dirty', total_amount: 0 }).eq('id', table.id);
             } else {
