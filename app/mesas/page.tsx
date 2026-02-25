@@ -114,58 +114,20 @@ function ProductSearchModal({
         setSaving(true);
 
         try {
-            // 1. Busca se já existe pedido ativo (1 query)
-            const { data: existingOrders } = await supabase
-                .from('orders')
-                .select('id, total_amount')
-                .eq('table_id', table.id)
-                .in('status', ['fila', 'preparando', 'pronto'])
-                .order('created_at', { ascending: true })
-                .limit(1);
+            const response = await fetch('/api/orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    table_id: table.id,
+                    items: cart.map(c => ({
+                        product_id: c.product.id,
+                        quantity: c.qty,
+                    })),
+                }),
+            });
 
-            let orderId: string;
-            // Calcula total novo localmente (sem round-trip extra)
-            const newItemsTotal = cartTotal; // cartTotal já calculado no estado
-            const existingTotal = existingOrders?.[0] ? Number(existingOrders[0].total_amount || 0) : 0;
-            const orderTotal = existingTotal + newItemsTotal;
-
-            if (existingOrders && existingOrders.length > 0) {
-                orderId = existingOrders[0].id;
-            } else {
-                // Cria pedido novo (2ª query)
-                const { data: newOrder, error: orderErr } = await supabase
-                    .from('orders')
-                    .insert({ table_id: table.id, status: 'fila', total_amount: 0 })
-                    .select('id')
-                    .single();
-
-                if (orderErr || !newOrder) throw new Error('Erro ao criar pedido: ' + orderErr?.message);
-                orderId = newOrder.id;
-            }
-
-            // 2. Insere itens (3ª query)
-            const { error: itemsErr } = await supabase
-                .from('order_items')
-                .insert(cart.map(c => ({
-                    order_id: orderId,
-                    product_id: c.product.id,
-                    quantity: c.qty,
-                    unit_price: Number(c.product.price),
-                })));
-
-            if (itemsErr) throw new Error('Erro ao inserir itens: ' + itemsErr.message);
-
-            // 3. Atualiza pedido e mesa em PARALELO (antes era sequencial)
-            await Promise.all([
-                supabase
-                    .from('orders')
-                    .update({ total_amount: orderTotal, status: 'fila' })
-                    .eq('id', orderId),
-                supabase
-                    .from('tables')
-                    .update({ status: 'occupied', total_amount: orderTotal })
-                    .eq('id', table.id),
-            ]);
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Erro ao lançar pedido');
 
             onSuccess();
             onClose();
