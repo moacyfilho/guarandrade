@@ -1,4 +1,4 @@
-const CACHE_NAME = 'guarandrade-v1';
+const CACHE_NAME = 'guarandrade-v2';
 const OFFLINE_URL = '/offline.html';
 
 // Assets to cache on install
@@ -48,6 +48,12 @@ self.addEventListener('fetch', (event) => {
 
     // Skip chrome-extension and other non-http(s) requests
     if (!url.protocol.startsWith('http')) return;
+
+    // Skip Next.js RSC (React Server Components) requests — não podem ser cacheadas
+    if (url.searchParams.has('_rsc')) return;
+
+    // Skip Next.js internal requests
+    if (url.pathname.startsWith('/_next/')) return;
 
     // API requests - network first, no cache fallback
     if (url.pathname.startsWith('/api/')) {
@@ -124,6 +130,8 @@ self.addEventListener('fetch', (event) => {
                         { headers: { 'Content-Type': 'image/svg+xml' } }
                     );
                 }
+                // Sempre retorna uma Response válida — nunca undefined
+                return new Response('', { status: 503 });
             });
         })
     );
