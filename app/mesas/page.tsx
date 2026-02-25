@@ -114,20 +114,53 @@ function ProductSearchModal({
         setSaving(true);
 
         try {
-            const response = await fetch('/api/orders', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    table_id: table.id,
-                    items: cart.map(c => ({
-                        product_id: c.product.id,
-                        quantity: c.qty,
-                    })),
-                }),
-            });
+            // 1. Busca pedido ativo existente (apenas status que aceitam novos itens)
+            const { data: existingOrders } = await supabase
+                .from('orders')
+                .select('id')
+                .eq('table_id', table.id)
+                .in('status', ['fila', 'preparando', 'pronto'])
+                .order('created_at', { ascending: true })
+                .limit(1);
 
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'Erro ao lançar pedido');
+            let orderId: string;
+            let createdNewOrder = false;
+
+            if (existingOrders && existingOrders.length > 0) {
+                orderId = existingOrders[0].id;
+            } else {
+                const { data: newOrder, error: orderErr } = await supabase
+                    .from('orders')
+                    .insert({ table_id: table.id, status: 'fila', total_amount: 0 })
+                    .select('id')
+                    .single();
+                if (orderErr || !newOrder) throw new Error('Erro ao criar pedido: ' + orderErr?.message);
+                orderId = newOrder.id;
+                createdNewOrder = true;
+            }
+
+            // 2. Insere itens com rollback automático se falhar
+            const { error: itemsErr } = await supabase
+                .from('order_items')
+                .insert(cart.map(c => ({
+                    order_id: orderId,
+                    product_id: c.product.id,
+                    quantity: c.qty,
+                    unit_price: Number(c.product.price),
+                })));
+
+            if (itemsErr) {
+                if (createdNewOrder) {
+                    await supabase.from('orders').delete().eq('id', orderId);
+                }
+                throw new Error('Erro ao inserir itens. Tente novamente.');
+            }
+
+            // 3. Atualiza mesa para ocupada (total será corrigido pelo fetchData em até 2s)
+            await supabase
+                .from('tables')
+                .update({ status: 'occupied' })
+                .eq('id', table.id);
 
             onSuccess();
             onClose();
