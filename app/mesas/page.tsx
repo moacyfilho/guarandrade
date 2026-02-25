@@ -526,11 +526,23 @@ export default function Mesas() {
     const handleFecharConta = async () => {
         if (!receiptModal) return;
         const { table, order } = receiptModal;
-        const orderIds = order.originalOrders.map((o: any) => o.id);
         try {
-            await supabase.from('orders').update({ status: 'finalizado' }).in('id', orderIds);
             if (!table.isCounter) {
+                // Re-busca todos os pedidos ativos da mesa no momento do pagamento
+                // para garantir que pedidos criados após a abertura do modal também sejam finalizados
+                const { data: freshOrders } = await supabase
+                    .from('orders')
+                    .select('id')
+                    .eq('table_id', table.id)
+                    .neq('status', 'finalizado');
+                const freshIds = (freshOrders || []).map((o: any) => o.id);
+                if (freshIds.length > 0) {
+                    await supabase.from('orders').update({ status: 'finalizado' }).in('id', freshIds);
+                }
                 await supabase.from('tables').update({ status: 'dirty', total_amount: 0 }).eq('id', table.id);
+            } else {
+                const orderIds = order.originalOrders.map((o: any) => o.id);
+                await supabase.from('orders').update({ status: 'finalizado' }).in('id', orderIds);
             }
             setReceiptModal(null);
             fetchData();
@@ -579,6 +591,11 @@ export default function Mesas() {
             setReceiptModal(null);
             await supabase.from('order_items').delete().eq('id', item.id);
             if (!receiptModal.table.isCounter) {
+                // Finaliza os pedidos para não deixarem pedidos "fantasmas" em 'fila' sem itens
+                const orderIds = receiptModal.order.originalOrders.map((o: any) => o.id);
+                if (orderIds.length > 0) {
+                    await supabase.from('orders').update({ status: 'finalizado' }).in('id', orderIds);
+                }
                 await supabase.from('tables').update({ status: 'available', total_amount: 0 }).eq('id', receiptModal.table.id);
                 setTables(prev => prev.map(t => t.id === receiptModal.table.id ? { ...t, status: 'available', total_amount: 0 } : t));
             }
