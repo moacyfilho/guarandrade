@@ -29,7 +29,9 @@ export default function Financeiro() {
         category: 'Outros'
     });
     const [editingId, setEditingId] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'receivable'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'payable' | 'receivable' | 'relatorio'>('overview');
+    const [salesBreakdown, setSalesBreakdown] = useState<{ label: string; orders: number; revenue: number }[]>([]);
+    const [reportStats, setReportStats] = useState({ totalRevenue: 0, totalOrders: 0, avgTicket: 0, topProduct: '' });
 
     // getStartDate removido — usar getStartDateManaus de @/lib/dateUtils
 
@@ -40,50 +42,76 @@ export default function Financeiro() {
         // Usa horário de Manaus (UTC-4) — sem isso o faturamento some após 20h
         const startDate = getStartDateManaus(range);
 
-        // ... existing order fetching ...
         const { data: orders } = await supabase
             .from('orders')
-            .select('*')
-            .gte('created_at', startDate);
+            .select('id, created_at, status, order_items(unit_price, quantity, product_id, products(name, categories(icon)))')
+            .gte('created_at', startDate)
+            .neq('status', 'cancelado');
 
-        const revenue = orders?.reduce((acc, curr) => acc + Number(curr.total_amount), 0) || 0;
+        // Receita calculada dos itens reais (não do total_amount que é sempre 0)
+        const ordersWithRevenue = (orders || []).map(o => ({
+            ...o,
+            computedRevenue: (o.order_items || []).reduce(
+                (s: number, item: any) => s + Number(item.unit_price) * Number(item.quantity), 0
+            )
+        }));
 
-        // ... existing top products logic ...
-        const orderIds = orders?.map(o => o.id) || [];
-        let orderItems: any[] = [];
-        if (orderIds.length > 0) {
-            const { data } = await supabase
-                .from('order_items')
-                .select('product_id, quantity, products(name, price, category_id, categories(icon))')
-                .in('order_id', orderIds);
-            if (data) orderItems = data;
-        }
+        const revenue = ordersWithRevenue.reduce((acc, o) => acc + o.computedRevenue, 0);
 
+        // Top produtos por quantidade e receita
         const productMap: any = {};
-        orderItems.forEach((item: any) => {
-            if (!item.products) return;
-            const pId = item.product_id;
-            if (!productMap[pId]) {
-                productMap[pId] = {
+        ordersWithRevenue.forEach(order => {
+            (order.order_items || []).forEach((item: any) => {
+                if (!item.products) return;
+                const pid = item.product_id;
+                if (!productMap[pid]) productMap[pid] = {
                     name: item.products.name,
                     icon: item.products.categories?.icon || '🍔',
                     totalQty: 0,
                     totalRevenue: 0
                 };
-            }
-            productMap[pId].totalQty += item.quantity;
-            productMap[pId].totalRevenue += item.quantity * item.products.price;
+                productMap[pid].totalQty += Number(item.quantity);
+                productMap[pid].totalRevenue += Number(item.unit_price) * Number(item.quantity);
+            });
         });
 
         const sortedProducts = Object.values(productMap)
             .sort((a: any, b: any) => b.totalQty - a.totalQty)
             .slice(0, 5);
 
-        // ... existing order transactions ...
-        const orderTransactions = (orders || []).map(o => ({
+        // Breakdown por sub-período
+        const groups: Record<string, { orders: number; revenue: number }> = {};
+        ordersWithRevenue.forEach(order => {
+            const d = new Date(order.created_at);
+            let label: string;
+            if (range === 'daily') {
+                label = `${d.getHours().toString().padStart(2, '0')}h`;
+            } else if (range === 'weekly') {
+                const days = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+                label = days[d.getDay()];
+            } else {
+                label = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+            }
+            if (!groups[label]) groups[label] = { orders: 0, revenue: 0 };
+            groups[label].orders += 1;
+            groups[label].revenue += order.computedRevenue;
+        });
+
+        const breakdown = Object.entries(groups).map(([label, data]) => ({ label, ...data }));
+        setSalesBreakdown(breakdown);
+
+        const topProduct = sortedProducts[0] ? (sortedProducts[0] as any).name : '-';
+        setReportStats({
+            totalRevenue: revenue,
+            totalOrders: ordersWithRevenue.length,
+            avgTicket: ordersWithRevenue.length > 0 ? revenue / ordersWithRevenue.length : 0,
+            topProduct,
+        });
+
+        const orderTransactions = ordersWithRevenue.map(o => ({
             id: o.id,
             type: 'receita',
-            value: Number(o.total_amount),
+            value: o.computedRevenue,
             method: `Pedido #${o.id.toString().slice(0, 4)}`,
             date: new Date(o.created_at).toLocaleDateString('pt-BR') + ' ' + new Date(o.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         })).reverse().slice(0, 10);
@@ -189,6 +217,82 @@ export default function Financeiro() {
         });
         setEditingId(transaction.id);
         setTransactionModalOpen(true);
+    };
+
+    const generateSalesReportPDF = async () => {
+        try {
+            const jsPDF = (await import('jspdf')).default;
+            const autoTable = (await import('jspdf-autotable')).default;
+            const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+            const periodoLabel = range === 'daily' ? 'Diário' : range === 'weekly' ? 'Semanal' : 'Mensal';
+
+            // Header
+            doc.setFillColor(5, 5, 5);
+            doc.rect(0, 0, 297, 20, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`Guarandrade — Relatório de Vendas ${periodoLabel}`, 10, 13);
+            doc.setFontSize(10);
+            doc.text(`Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, 195, 13);
+
+            // Resumo
+            doc.setTextColor(0, 0, 0);
+            doc.setFontSize(11);
+            doc.text('Resumo do Período:', 14, 30);
+            doc.setFontSize(10);
+            doc.setTextColor(100, 0, 200);
+            doc.text(`Faturamento: R$ ${reportStats.totalRevenue.toFixed(2).replace('.', ',')}`, 14, 38);
+            doc.setTextColor(0, 0, 0);
+            doc.text(`Pedidos: ${reportStats.totalOrders}`, 80, 38);
+            doc.text(`Ticket Médio: R$ ${reportStats.avgTicket.toFixed(2).replace('.', ',')}`, 120, 38);
+            doc.text(`Mais Vendido: ${reportStats.topProduct}`, 190, 38);
+
+            // Tabela breakdown
+            const breakdownLabel = range === 'daily' ? 'Hora' : range === 'weekly' ? 'Dia' : 'Data';
+            autoTable(doc, {
+                startY: 46,
+                head: [[breakdownLabel, 'Pedidos', 'Faturamento (R$)', '% do Total']],
+                body: salesBreakdown.map(row => [
+                    row.label,
+                    row.orders,
+                    row.revenue.toFixed(2).replace('.', ','),
+                    reportStats.totalRevenue > 0 ? `${((row.revenue / reportStats.totalRevenue) * 100).toFixed(1)}%` : '0%',
+                ]),
+                theme: 'grid',
+                headStyles: { fillColor: [20, 20, 20], textColor: [255, 255, 255], fontStyle: 'bold' },
+                styles: { fontSize: 9 },
+                columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' } },
+            });
+
+            // Top Produtos
+            const afterBreakdown = (doc as any).lastAutoTable?.finalY + 10 || 80;
+            doc.setFontSize(11);
+            doc.setTextColor(0, 0, 0);
+            doc.text('Top 5 Produtos:', 14, afterBreakdown);
+
+            autoTable(doc, {
+                startY: afterBreakdown + 4,
+                head: [['#', 'Produto', 'Qtd. Vendida', 'Faturamento (R$)', '% do Total']],
+                body: (topProducts as any[]).map((p, i) => [
+                    `${i + 1}º`,
+                    p.name,
+                    p.totalQty,
+                    p.totalRevenue.toFixed(2).replace('.', ','),
+                    reportStats.totalRevenue > 0 ? `${((p.totalRevenue / reportStats.totalRevenue) * 100).toFixed(1)}%` : '0%',
+                ]),
+                theme: 'grid',
+                headStyles: { fillColor: [20, 20, 20], textColor: [255, 255, 255], fontStyle: 'bold' },
+                styles: { fontSize: 9 },
+                columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' } },
+            });
+
+            doc.save(`relatorio-vendas-${periodoLabel.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.pdf`);
+        } catch (error) {
+            console.error('Erro ao gerar PDF:', error);
+            alert('Erro ao gerar PDF.');
+        }
     };
 
     const generatePDF = async () => {
@@ -341,6 +445,7 @@ export default function Financeiro() {
 
                 <div style={{ display: 'flex', background: 'var(--bg-card)', padding: 4, borderRadius: 14, width: 'fit-content', marginBottom: 24, border: '1px solid var(--border-color)' }}>
                     <button onClick={() => setActiveTab('overview')} className={`btn ${activeTab === 'overview' ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '10px 20px' }}>Visão Geral</button>
+                    <button onClick={() => setActiveTab('relatorio')} className={`btn ${activeTab === 'relatorio' ? 'btn-primary' : 'btn-ghost'}`} style={{ padding: '10px 20px' }}>📊 Relatório de Vendas</button>
                     <button onClick={() => setActiveTab('payable')} className={`btn ${activeTab === 'payable' ? 'btn-danger' : 'btn-ghost'}`} style={{ padding: '10px 20px' }}>A Pagar</button>
                     <button onClick={() => setActiveTab('receivable')} className={`btn ${activeTab === 'receivable' ? 'btn-success' : 'btn-ghost'}`} style={{ padding: '10px 20px' }}>A Receber</button>
                 </div>
@@ -403,6 +508,125 @@ export default function Financeiro() {
                                             </td>
                                         </tr>
                                     ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
+                )}
+
+                {activeTab === 'relatorio' && (
+                    <>
+                        {/* Seletor de período */}
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+                            {(['daily', 'weekly', 'monthly'] as const).map(r => (
+                                <button
+                                    key={r}
+                                    onClick={() => setRange(r)}
+                                    className={`btn ${range === r ? 'btn-primary' : 'btn-ghost'}`}
+                                    style={{ padding: '10px 20px' }}
+                                >
+                                    {r === 'daily' ? 'Hoje' : r === 'weekly' ? 'Esta Semana' : 'Este Mês'}
+                                </button>
+                            ))}
+                            <button
+                                onClick={generateSalesReportPDF}
+                                className="btn btn-ghost"
+                                style={{ marginLeft: 'auto', padding: '10px 20px' }}
+                            >
+                                📄 Exportar PDF
+                            </button>
+                        </div>
+
+                        {/* Cards resumo */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+                            {[
+                                { label: 'Faturamento', value: `R$ ${reportStats.totalRevenue.toFixed(2).replace('.', ',')}`, icon: '💰', color: '#c084fc' },
+                                { label: 'Pedidos', value: String(reportStats.totalOrders), icon: '📝', color: '#60a5fa' },
+                                { label: 'Ticket Médio', value: `R$ ${reportStats.avgTicket.toFixed(2).replace('.', ',')}`, icon: '🎯', color: '#34d399' },
+                                { label: 'Mais Vendido', value: reportStats.topProduct, icon: '🏆', color: '#fb923c' },
+                            ].map(card => (
+                                <div key={card.label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 24 }}>
+                                    <div style={{ fontSize: 24, marginBottom: 8 }}>{card.icon}</div>
+                                    <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{card.label}</p>
+                                    <p style={{ fontSize: card.label === 'Mais Vendido' ? 14 : 22, fontWeight: 900, color: card.color, letterSpacing: '-0.02em', wordBreak: 'break-word' }}>{card.value}</p>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Tabela de breakdown */}
+                        <div className="glass" style={{ overflow: 'hidden', marginBottom: 24 }}>
+                            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h3 style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)' }}>
+                                    Vendas por {range === 'daily' ? 'Hora' : range === 'weekly' ? 'Dia da Semana' : 'Dia do Mês'}
+                                </h3>
+                            </div>
+                            {salesBreakdown.length === 0 ? (
+                                <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Nenhuma venda no período selecionado.</div>
+                            ) : (
+                                <table className="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>{range === 'daily' ? 'Hora' : range === 'weekly' ? 'Dia' : 'Data'}</th>
+                                            <th style={{ textAlign: 'center' }}>Pedidos</th>
+                                            <th style={{ textAlign: 'right' }}>Faturamento</th>
+                                            <th style={{ textAlign: 'right' }}>% do Total</th>
+                                            <th>Barra</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {salesBreakdown.map((row) => {
+                                            const maxRevenue = Math.max(...salesBreakdown.map(r => r.revenue));
+                                            const pct = maxRevenue > 0 ? (row.revenue / reportStats.totalRevenue) * 100 : 0;
+                                            const barWidth = maxRevenue > 0 ? (row.revenue / maxRevenue) * 100 : 0;
+                                            return (
+                                                <tr key={row.label}>
+                                                    <td style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{row.label}</td>
+                                                    <td style={{ textAlign: 'center' }}>{row.orders}</td>
+                                                    <td style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--price-color)' }}>R$ {row.revenue.toFixed(2).replace('.', ',')}</td>
+                                                    <td style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 12 }}>{pct.toFixed(1)}%</td>
+                                                    <td style={{ width: 160 }}>
+                                                        <div style={{ background: 'var(--bg-page)', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                                                            <div style={{ width: `${barWidth}%`, height: '100%', background: 'linear-gradient(90deg, #EA1D2C, #c084fc)', borderRadius: 4, transition: 'width 0.3s' }} />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+
+                        {/* Top Produtos */}
+                        <div className="glass" style={{ overflow: 'hidden' }}>
+                            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
+                                <h3 style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)' }}>Top 5 Produtos</h3>
+                            </div>
+                            <table className="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Produto</th>
+                                        <th style={{ textAlign: 'center' }}>Qtd. Vendida</th>
+                                        <th style={{ textAlign: 'right' }}>Faturamento</th>
+                                        <th style={{ textAlign: 'right' }}>% do Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(topProducts as any[]).map((p, i) => (
+                                        <tr key={p.name}>
+                                            <td style={{ fontWeight: 900, color: i === 0 ? '#fb923c' : 'var(--text-muted)', fontSize: 16 }}>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}º`}</td>
+                                            <td style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{p.icon} {p.name}</td>
+                                            <td style={{ textAlign: 'center', fontFamily: 'monospace', fontWeight: 700 }}>{p.totalQty}</td>
+                                            <td style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: 'var(--price-color)' }}>R$ {p.totalRevenue.toFixed(2).replace('.', ',')}</td>
+                                            <td style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: 12 }}>
+                                                {reportStats.totalRevenue > 0 ? ((p.totalRevenue / reportStats.totalRevenue) * 100).toFixed(1) : '0.0'}%
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {topProducts.length === 0 && (
+                                        <tr><td colSpan={5} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>Nenhum produto vendido no período.</td></tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
