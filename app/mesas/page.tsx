@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import { supabase } from '@/lib/supabase';
 import { useRealtimeSync } from '@/hooks/useRealtimeSync';
+import { logger } from '@/lib/logger';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 interface Product {
@@ -112,6 +113,7 @@ function ProductSearchModal({
     const handleConfirm = async () => {
         if (cart.length === 0 || saving) return;
         setSaving(true);
+        logger.info('handleConfirm:start', { table_id: table.id, items_count: cart.length, items: cart.map(c => ({ product_id: c.product.id, name: c.product.name, qty: c.qty })) });
 
         try {
             // 1. Busca pedido ativo existente (apenas status que aceitam novos itens)
@@ -128,15 +130,20 @@ function ProductSearchModal({
 
             if (existingOrders && existingOrders.length > 0) {
                 orderId = existingOrders[0].id;
+                logger.info('handleConfirm:order_reused', { order_id: orderId, table_id: table.id });
             } else {
                 const { data: newOrder, error: orderErr } = await supabase
                     .from('orders')
                     .insert({ table_id: table.id, status: 'fila', total_amount: 0 })
                     .select('id')
                     .single();
-                if (orderErr || !newOrder) throw new Error('Erro ao criar pedido: ' + orderErr?.message);
+                if (orderErr || !newOrder) {
+                    logger.error('handleConfirm:order_create_failed', { table_id: table.id, error: orderErr?.message });
+                    throw new Error('Erro ao criar pedido: ' + orderErr?.message);
+                }
                 orderId = newOrder.id;
                 createdNewOrder = true;
+                logger.info('handleConfirm:order_created', { order_id: orderId, table_id: table.id });
             }
 
             // 2. Insere itens com rollback automático se falhar
@@ -150,11 +157,15 @@ function ProductSearchModal({
                 })));
 
             if (itemsErr) {
+                logger.error('handleConfirm:items_insert_failed', { order_id: orderId, error: itemsErr.message, rollback: createdNewOrder });
                 if (createdNewOrder) {
                     await supabase.from('orders').delete().eq('id', orderId);
+                    logger.warn('handleConfirm:rollback_done', { order_id: orderId });
                 }
                 throw new Error('Erro ao inserir itens. Tente novamente.');
             }
+
+            logger.info('handleConfirm:items_inserted', { order_id: orderId, items_count: cart.length });
 
             // 3. Atualiza mesa para ocupada (total será corrigido pelo fetchData em até 2s)
             await supabase
@@ -162,9 +173,11 @@ function ProductSearchModal({
                 .update({ status: 'occupied' })
                 .eq('id', table.id);
 
+            logger.info('handleConfirm:success', { order_id: orderId, table_id: table.id });
             onSuccess();
             onClose();
         } catch (err: any) {
+            logger.error('handleConfirm:catch', { table_id: table.id, error: err?.message });
             alert(err.message || 'Erro ao lançar itens');
         } finally {
             setSaving(false);
@@ -527,9 +540,9 @@ export default function Mesas() {
     const handleFecharConta = async () => {
         if (!receiptModal) return;
         const { table, order } = receiptModal;
+        logger.info('handleFecharConta:start', { table_id: table.id, isCounter: table.isCounter, total: order.total_amount, original_orders: order.originalOrders?.length });
         try {
             if (!table.isCounter) {
-                // Combina fresh fetch + originalOrders: garante finalização mesmo se um falhar
                 const { data: freshOrders } = await supabase
                     .from('orders')
                     .select('id')
@@ -540,19 +553,24 @@ export default function Mesas() {
                     ...(freshOrders || []).map((o: any) => String(o.id)),
                 ]);
                 const allIds = Array.from(idSet);
+                logger.info('handleFecharConta:finalizing_orders', { table_id: table.id, order_ids: allIds });
                 if (allIds.length > 0) {
                     await supabase.from('orders').update({ status: 'finalizado' }).in('id', allIds);
                 }
                 await supabase.from('tables').update({ status: 'dirty', total_amount: 0 }).eq('id', table.id);
+                logger.info('handleFecharConta:table_set_dirty', { table_id: table.id });
             } else {
                 const orderIds = order.originalOrders.map((o: any) => o.id);
+                logger.info('handleFecharConta:balcao_finalizing', { order_ids: orderIds });
                 await supabase.from('orders').update({ status: 'finalizado' }).in('id', orderIds);
             }
+            logger.info('handleFecharConta:success', { table_id: table.id, isCounter: table.isCounter });
             setReceiptModal(null);
             fetchData();
             alert(table.isCounter ? 'Venda Balcão finalizada! 🛍️' : `Mesa ${table.id} fechada com sucesso! 💰`);
             if (!table.isCounter) router.push('/');
-        } catch {
+        } catch (err: any) {
+            logger.error('handleFecharConta:error', { table_id: table.id, error: err?.message });
             alert('Erro ao fechar conta.');
         }
     };
@@ -560,7 +578,10 @@ export default function Mesas() {
     const handleUpdateItemQty = async (item: OrderItem, delta: number) => {
         if (!receiptModal) return;
         const newQty = item.quantity + delta;
+        logger.info('handleUpdateItemQty:start', { item_id: item.id, name: item.products?.name, old_qty: item.quantity, delta, new_qty: newQty });
+
         if (newQty <= 0) {
+            logger.info('handleUpdateItemQty:qty_zero_delete', { item_id: item.id });
             await handleDeleteItem(item, false);
             return;
         }
@@ -574,10 +595,12 @@ export default function Mesas() {
         setReceiptModal((prev: any) => ({ ...prev, order: { ...prev.order, items: updatedItems, total_amount: newTotal } }));
         const { error } = await supabase.from('order_items').update({ quantity: newQty }).eq('id', item.id);
         if (error) {
+            logger.error('handleUpdateItemQty:update_failed', { item_id: item.id, error: error.message });
             alert('Erro ao atualizar item: ' + error.message);
             setReceiptModal((prev: any) => ({ ...prev, order: { ...prev.order, items: snapshot.items, total_amount: snapshot.total_amount } }));
             return;
         }
+        logger.info('handleUpdateItemQty:success', { item_id: item.id, new_qty: newQty, new_total: newTotal });
         if (!receiptModal.table.isCounter) {
             supabase.from('tables').update({ total_amount: newTotal }).eq('id', receiptModal.table.id)
                 .then(() => setTables(prev => prev.map(t => t.id === receiptModal.table.id ? { ...t, total_amount: newTotal } : t)));
@@ -586,27 +609,34 @@ export default function Mesas() {
 
     const handleDeleteItem = async (item: OrderItem, askConfirm: boolean) => {
         if (!receiptModal) return;
-        if (askConfirm && !confirm(`Remover "${item.products?.name || 'este item'}"?`)) return;
+        logger.info('handleDeleteItem:start', { item_id: item.id, name: item.products?.name, askConfirm });
+        if (askConfirm && !confirm(`Remover "${item.products?.name || 'este item'}"?`)) {
+            logger.info('handleDeleteItem:cancelled_by_user', { item_id: item.id });
+            return;
+        }
         const updatedItems = receiptModal.order.items.filter((i: OrderItem) => i.id !== item.id);
         const newTotal = updatedItems.reduce(
             (acc: number, i: OrderItem) => acc + (Number(i.unit_price || 0) * Number(i.quantity || 0)), 0
         );
         if (updatedItems.length === 0) {
+            logger.info('handleDeleteItem:last_item_removing', { item_id: item.id, table_id: receiptModal.table.id });
             setReceiptModal(null);
             await supabase.from('order_items').delete().eq('id', item.id);
             if (!receiptModal.table.isCounter) {
-                // Finaliza os pedidos para não deixarem pedidos "fantasmas" em 'fila' sem itens
                 const orderIds = receiptModal.order.originalOrders.map((o: any) => o.id);
                 if (orderIds.length > 0) {
                     await supabase.from('orders').update({ status: 'finalizado' }).in('id', orderIds);
+                    logger.info('handleDeleteItem:orders_finalized', { order_ids: orderIds });
                 }
                 await supabase.from('tables').update({ status: 'available', total_amount: 0 }).eq('id', receiptModal.table.id);
                 setTables(prev => prev.map(t => t.id === receiptModal.table.id ? { ...t, status: 'available', total_amount: 0 } : t));
+                logger.info('handleDeleteItem:table_freed', { table_id: receiptModal.table.id });
             }
             return;
         }
         setReceiptModal((prev: any) => ({ ...prev, order: { ...prev.order, items: updatedItems, total_amount: newTotal } }));
         await supabase.from('order_items').delete().eq('id', item.id);
+        logger.info('handleDeleteItem:success', { item_id: item.id, remaining_items: updatedItems.length, new_total: newTotal });
         if (!receiptModal.table.isCounter) {
             supabase.from('tables').update({ total_amount: newTotal }).eq('id', receiptModal.table.id)
                 .then(() => setTables(prev => prev.map(t => t.id === receiptModal.table.id ? { ...t, total_amount: newTotal } : t)));

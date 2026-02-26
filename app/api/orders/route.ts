@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
 
 export async function POST(request: Request) {
+    const reqId = crypto.randomUUID().slice(0, 8);
     try {
         const body = await request.json();
         const { table_id, items } = body;
+        logger.info('api/orders:request', { req_id: reqId, table_id, items_count: items?.length });
 
         // 1. Validação
         if (!table_id || !items || !Array.isArray(items) || items.length === 0) {
+            logger.warn('api/orders:validation_failed', { req_id: reqId, table_id, items });
             return NextResponse.json({ error: 'Dados inválidos. Mesa e itens são obrigatórios.' }, { status: 400 });
         }
 
@@ -19,6 +23,7 @@ export async function POST(request: Request) {
             .in('id', productIds);
 
         if (productsError || !products || products.length === 0) {
+            logger.error('api/orders:products_fetch_failed', { req_id: reqId, error: productsError?.message, product_ids: productIds });
             return NextResponse.json({ error: 'Erro ao buscar produtos.' }, { status: 500 });
         }
 
@@ -36,6 +41,7 @@ export async function POST(request: Request) {
             .filter(Boolean);
 
         if (finalItems.length === 0) {
+            logger.warn('api/orders:no_valid_items', { req_id: reqId, table_id });
             return NextResponse.json({ error: 'Nenhum item válido encontrado.' }, { status: 400 });
         }
 
@@ -53,6 +59,7 @@ export async function POST(request: Request) {
 
         if (existingOrders && existingOrders.length > 0) {
             orderId = existingOrders[0].id;
+            logger.info('api/orders:order_reused', { req_id: reqId, order_id: orderId, table_id });
         } else {
             const { data: newOrder, error: orderError } = await supabase
                 .from('orders')
@@ -61,11 +68,13 @@ export async function POST(request: Request) {
                 .single();
 
             if (orderError || !newOrder) {
+                logger.error('api/orders:order_create_failed', { req_id: reqId, table_id, error: orderError?.message });
                 return NextResponse.json({ error: 'Erro ao criar pedido.' }, { status: 500 });
             }
 
             orderId = newOrder.id;
             createdNewOrder = true;
+            logger.info('api/orders:order_created', { req_id: reqId, order_id: orderId, table_id });
         }
 
         // 5. Insere itens com rollback automático se falhar
@@ -74,8 +83,10 @@ export async function POST(request: Request) {
             .insert(finalItems.map((item: any) => ({ order_id: orderId, ...item })));
 
         if (itemsError) {
+            logger.error('api/orders:items_insert_failed', { req_id: reqId, order_id: orderId, error: itemsError.message, rollback: createdNewOrder });
             if (createdNewOrder) {
                 await supabase.from('orders').delete().eq('id', orderId);
+                logger.warn('api/orders:rollback_done', { req_id: reqId, order_id: orderId });
             }
             return NextResponse.json(
                 { error: 'Erro ao inserir itens. Operação revertida.' },
@@ -83,17 +94,19 @@ export async function POST(request: Request) {
             );
         }
 
+        logger.info('api/orders:items_inserted', { req_id: reqId, order_id: orderId, items_count: finalItems.length });
+
         // 6. Marca mesa como ocupada
-        // (total_amount é recalculado automaticamente pelo fetchData via useRealtimeSync em até 2s)
         await supabase
             .from('tables')
             .update({ status: 'occupied' })
             .eq('id', table_id);
 
+        logger.info('api/orders:success', { req_id: reqId, order_id: orderId, table_id });
         return NextResponse.json({ success: true, orderId });
 
     } catch (error: any) {
-        console.error('API /orders error:', error);
+        logger.error('api/orders:unhandled_exception', { req_id: reqId, error: error?.message });
         return NextResponse.json({ error: 'Erro interno do servidor.' }, { status: 500 });
     }
 }
