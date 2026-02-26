@@ -425,7 +425,7 @@ export default function Mesas() {
                 .order('created_at', { ascending: false }),
             supabase
                 .from('orders')
-                .select(`id, table_id, status, total_amount, order_items (unit_price, quantity)`)
+                .select(`id, table_id, status, total_amount, created_at, order_items (unit_price, quantity)`)
                 .neq('status', 'finalizado')
                 .not('table_id', 'is', null),
         ]);
@@ -439,12 +439,19 @@ export default function Mesas() {
                 const realTotal = allItems.reduce((acc: number, item: any) => acc + (Number(item.unit_price || 0) * Number(item.quantity || 0)), 0);
                 const hasRealItems = allItems.length > 0;
 
-                // Cleanup: pedidos sem itens são fantasmas — finaliza silenciosamente
-                const ghostOrders = tableOrders.filter((o: any) => (o.order_items || []).length === 0);
+                // Ignora pedidos criados há menos de 60s (evita race condition com insert de itens)
+                const now = Date.now();
+                const isRecent = (o: any) => now - new Date(o.created_at).getTime() < 60_000;
+
+                // Cleanup: pedidos sem itens são fantasmas — finaliza silenciosamente (apenas antigos)
+                const ghostOrders = tableOrders.filter((o: any) => (o.order_items || []).length === 0 && !isRecent(o));
                 if (ghostOrders.length > 0) {
                     const ghostIds = ghostOrders.map((o: any) => o.id);
                     supabase.from('orders').update({ status: 'finalizado' }).in('id', ghostIds).then(() => { });
                 }
+
+                // Pedidos recentes sem itens ainda visíveis — aguarda sem tocar na mesa
+                const hasRecentOrders = tableOrders.some(isRecent);
 
                 // Auto-correct baseado em itens reais, não apenas existência de pedidos
                 if (hasRealItems && table.status !== 'occupied') {
@@ -455,7 +462,7 @@ export default function Mesas() {
                     return { ...table, status: 'occupied', total_amount: realTotal };
                 }
 
-                if (!hasRealItems && table.status === 'occupied') {
+                if (!hasRealItems && !hasRecentOrders && table.status === 'occupied') {
                     supabase.from('tables')
                         .update({ status: 'dirty', total_amount: 0 })
                         .eq('id', table.id)
