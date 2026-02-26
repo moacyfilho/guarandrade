@@ -37,11 +37,16 @@ export default function Home() {
 
         const { data: revenueData } = await supabase
             .from('orders')
-            .select('total_amount')
+            .select('order_items (unit_price, quantity)')
             .gte('created_at', todayManaus)
             .neq('status', 'cancelado');
 
-        const totalRevenue = revenueData?.reduce((acc, curr) => acc + (Number(curr.total_amount) || 0), 0) || 0;
+        const totalRevenue = revenueData?.reduce((acc, order) => {
+            const orderTotal = (order.order_items || []).reduce(
+                (sum: number, item: any) => sum + (Number(item.unit_price) * Number(item.quantity)), 0
+            );
+            return acc + orderTotal;
+        }, 0) || 0;
 
         const { data: ordersData } = await supabase
             .from('orders')
