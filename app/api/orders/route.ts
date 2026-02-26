@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 
-// Aumenta timeout para 60s no Vercel (padrão é 10s no plano Hobby)
-export const maxDuration = 60;
-
 export async function POST(request: Request) {
     try {
         const body = await request.json();
