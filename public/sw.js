@@ -1,4 +1,4 @@
-const CACHE_NAME = 'guarandrade-v3';
+const CACHE_NAME = 'guarandrade-v4';
 
 // Install event - ativa imediatamente sem precache (evita falha por asset ausente)
 self.addEventListener('install', (event) => {
@@ -37,6 +37,9 @@ self.addEventListener('fetch', (event) => {
 
     // Ignora protocolos não-HTTP
     if (!url.protocol.startsWith('http')) return;
+
+    // Ignora requisições cross-origin (Supabase, CDNs, APIs externas)
+    if (url.origin !== self.location.origin) return;
 
     // Ignora Next.js RSC — não podem ser cacheadas
     if (url.searchParams.has('_rsc')) return;
