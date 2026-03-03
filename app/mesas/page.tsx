@@ -34,10 +34,11 @@ interface Order {
 }
 
 interface Table {
-    id: number;
+    id: number | null;
     name: string;
     status: 'available' | 'occupied' | 'dirty';
     total_amount: number;
+    isCounter?: boolean;
 }
 
 // ─── Product Search Modal ──────────────────────────────────────────────────
@@ -116,34 +117,50 @@ function ProductSearchModal({
         logger.info('handleConfirm:start', { table_id: table.id, items_count: cart.length, items: cart.map(c => ({ product_id: c.product.id, name: c.product.name, qty: c.qty })) });
 
         try {
-            // 1. Busca pedido ativo existente (apenas status que aceitam novos itens)
-            const { data: existingOrders } = await supabase
-                .from('orders')
-                .select('id')
-                .eq('table_id', table.id)
-                .in('status', ['fila', 'preparando', 'pronto'])
-                .order('created_at', { ascending: true })
-                .limit(1);
-
             let orderId: string;
             let createdNewOrder = false;
 
-            if (existingOrders && existingOrders.length > 0) {
-                orderId = existingOrders[0].id;
-                logger.info('handleConfirm:order_reused', { order_id: orderId, table_id: table.id });
-            } else {
+            if (table.isCounter) {
+                // Balcão: sempre cria novo pedido com table_id = null
                 const { data: newOrder, error: orderErr } = await supabase
                     .from('orders')
-                    .insert({ table_id: table.id, status: 'fila', total_amount: 0 })
+                    .insert({ table_id: null, status: 'fila', total_amount: 0 })
                     .select('id')
                     .single();
                 if (orderErr || !newOrder) {
-                    logger.error('handleConfirm:order_create_failed', { table_id: table.id, error: orderErr?.message });
-                    throw new Error('Erro ao criar pedido: ' + orderErr?.message);
+                    logger.error('handleConfirm:order_create_failed', { table_id: 'balcao', error: orderErr?.message });
+                    throw new Error('Erro ao criar pedido de balcão: ' + orderErr?.message);
                 }
                 orderId = newOrder.id;
                 createdNewOrder = true;
-                logger.info('handleConfirm:order_created', { order_id: orderId, table_id: table.id });
+                logger.info('handleConfirm:order_created', { order_id: orderId, table_id: 'balcao' });
+            } else {
+                // 1. Busca pedido ativo existente na mesa
+                const { data: existingOrders } = await supabase
+                    .from('orders')
+                    .select('id')
+                    .eq('table_id', table.id)
+                    .in('status', ['fila', 'preparando', 'pronto'])
+                    .order('created_at', { ascending: true })
+                    .limit(1);
+
+                if (existingOrders && existingOrders.length > 0) {
+                    orderId = existingOrders[0].id;
+                    logger.info('handleConfirm:order_reused', { order_id: orderId, table_id: table.id });
+                } else {
+                    const { data: newOrder, error: orderErr } = await supabase
+                        .from('orders')
+                        .insert({ table_id: table.id, status: 'fila', total_amount: 0 })
+                        .select('id')
+                        .single();
+                    if (orderErr || !newOrder) {
+                        logger.error('handleConfirm:order_create_failed', { table_id: table.id, error: orderErr?.message });
+                        throw new Error('Erro ao criar pedido: ' + orderErr?.message);
+                    }
+                    orderId = newOrder.id;
+                    createdNewOrder = true;
+                    logger.info('handleConfirm:order_created', { order_id: orderId, table_id: table.id });
+                }
             }
 
             // 2. Insere itens com rollback automático se falhar
@@ -167,11 +184,13 @@ function ProductSearchModal({
 
             logger.info('handleConfirm:items_inserted', { order_id: orderId, items_count: cart.length });
 
-            // 3. Atualiza mesa para ocupada (total será corrigido pelo fetchData em até 2s)
-            await supabase
-                .from('tables')
-                .update({ status: 'occupied' })
-                .eq('id', table.id);
+            // 3. Atualiza mesa para ocupada (apenas para mesas, não balcão)
+            if (!table.isCounter) {
+                await supabase
+                    .from('tables')
+                    .update({ status: 'occupied' })
+                    .eq('id', table.id);
+            }
 
             logger.info('handleConfirm:success', { order_id: orderId, table_id: table.id });
             onSuccess();
@@ -628,7 +647,8 @@ export default function Mesas() {
         }
     };
 
-    const handleLiberarMesa = async (id: number) => {
+    const handleLiberarMesa = async (id: number | null) => {
+        if (id === null) return;
         await supabase.from('orders').update({ status: 'finalizado' }).eq('table_id', id).neq('status', 'finalizado');
         await supabase.from('tables').update({ status: 'available', total_amount: 0 }).eq('id', id);
         fetchData();
@@ -696,40 +716,89 @@ export default function Mesas() {
                     </div>
                 </header>
 
-                {/* ── Counter Orders ── */}
-                {counterOrders.length > 0 && (
-                    <div style={{ marginBottom: 28 }}>
-                        <h2 style={{ fontSize: 12, fontWeight: 800, color: 'var(--price-color)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
-                            🛍️ Pedidos de Balcão Ativos
-                        </h2>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
-                            {counterOrders.map((order, idx) => (
+                {/* ── Balcão ── */}
+                <div style={{ marginBottom: 28 }}>
+                    <h2 style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 12 }}>
+                        🛍️ Balcão
+                    </h2>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+
+                        {/* Card fixo de novo lançamento */}
+                        {(() => {
+                            const counterTotal = counterOrders.reduce((acc, o) =>
+                                acc + (o.order_items || []).reduce((s: number, i: any) => s + Number(i.unit_price) * Number(i.quantity), 0), 0);
+                            const hasOrders = counterOrders.length > 0;
+                            return (
+                                <div style={{
+                                    background: hasOrders ? 'rgba(234,29,44,0.06)' : 'rgba(80,167,115,0.04)',
+                                    border: `1px solid ${hasOrders ? 'rgba(234,29,44,0.2)' : 'var(--border-color)'}`,
+                                    borderRadius: 18, padding: '18px 16px', position: 'relative', overflow: 'hidden',
+                                }}>
+                                    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: hasOrders ? 'var(--danger)' : 'var(--success)', boxShadow: `0 0 12px ${hasOrders ? 'var(--danger)' : 'var(--success)'}60` }} />
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                                        <div>
+                                            <h3 style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 3 }}>Balcão</h3>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                                <span style={{ width: 7, height: 7, borderRadius: '50%', background: hasOrders ? 'var(--danger)' : 'var(--success)', display: 'inline-block' }} />
+                                                <span style={{ fontSize: 10, fontWeight: 700, color: hasOrders ? 'var(--danger)' : 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                    {hasOrders ? `${counterOrders.length} pedido${counterOrders.length > 1 ? 's' : ''} ativo${counterOrders.length > 1 ? 's' : ''}` : 'Livre'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <span style={{ fontSize: 22 }}>🛍️</span>
+                                    </div>
+                                    {hasOrders && (
+                                        <div style={{ marginBottom: 10 }}>
+                                            <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total</p>
+                                            <p style={{ fontSize: 22, fontWeight: 900, color: 'var(--price-color)', letterSpacing: '-0.03em' }}>
+                                                R$ {counterTotal.toFixed(2).replace('.', ',')}
+                                            </p>
+                                        </div>
+                                    )}
+                                    <button
+                                        onClick={() => setSearchModal({ id: null, name: 'Balcão', isCounter: true, status: 'available', total_amount: 0 })}
+                                        style={{
+                                            width: '100%', padding: '10px 0', borderRadius: 10, border: 'none',
+                                            background: 'linear-gradient(135deg, #EA1D2C, #C8101E)',
+                                            color: '#fff', fontWeight: 800, fontSize: 11,
+                                            letterSpacing: '0.08em', textTransform: 'uppercase', cursor: 'pointer',
+                                            boxShadow: '0 4px 12px rgba(234,29,44,0.35)', marginBottom: 6,
+                                        }}
+                                    >
+                                        🔍 Buscar e Lançar
+                                    </button>
+                                </div>
+                            );
+                        })()}
+
+                        {/* Pedidos ativos do balcão */}
+                        {counterOrders.map((order, idx) => {
+                            const orderTotal = (order.order_items || []).reduce((s: number, i: any) => s + Number(i.unit_price) * Number(i.quantity), 0);
+                            return (
                                 <div key={order.id} className="animate-fade-in" style={{
-                                    background: 'rgba(234,29,44,0.04)',
-                                    border: '1px solid rgba(234,29,44,0.15)',
-                                    borderRadius: 16, padding: 16,
-                                    animationDelay: `${idx * 0.05}s`, opacity: 0,
+                                    background: 'rgba(234,29,44,0.04)', border: '1px solid rgba(234,29,44,0.15)',
+                                    borderRadius: 16, padding: 16, animationDelay: `${idx * 0.05}s`, opacity: 0,
                                 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                        <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>#{order.id.slice(0, 4)}</span>
+                                        <span style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>#{order.id.slice(0, 6)}</span>
                                         <span className="badge badge-success" style={{ fontSize: 10 }}>
                                             {new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     </div>
                                     <p style={{ fontSize: 22, fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
-                                        R$ {parseFloat(order.total_amount).toFixed(2).replace('.', ',')}
+                                        R$ {orderTotal.toFixed(2).replace('.', ',')}
                                     </p>
                                     <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 12px' }}>{order.order_items?.length} itens</p>
                                     <button
                                         onClick={() => handleOpenReceipt(order, true)}
                                         className="btn btn-primary"
                                         style={{ width: '100%', padding: '10px 0' }}
-                                    >Finalizar / Ver</button>
+                                    >Conta / Finalizar</button>
                                 </div>
-                            ))}
-                        </div>
+                            );
+                        })}
                     </div>
-                )}
+                </div>
 
                 {/* ── Tables Grid ── */}
                 <div style={{
