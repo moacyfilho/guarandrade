@@ -39,6 +39,7 @@ interface Table {
     status: 'available' | 'occupied' | 'dirty';
     total_amount: number;
     isCounter?: boolean;
+    existingOrderId?: string;
 }
 
 // ─── Product Search Modal ──────────────────────────────────────────────────
@@ -121,19 +122,25 @@ function ProductSearchModal({
             let createdNewOrder = false;
 
             if (table.isCounter) {
-                // Balcão: sempre cria novo pedido com table_id = null
-                const { data: newOrder, error: orderErr } = await supabase
-                    .from('orders')
-                    .insert({ table_id: null, status: 'fila', total_amount: 0 })
-                    .select('id')
-                    .single();
-                if (orderErr || !newOrder) {
-                    logger.error('handleConfirm:order_create_failed', { table_id: 'balcao', error: orderErr?.message });
-                    throw new Error('Erro ao criar pedido de balcão: ' + orderErr?.message);
+                if (table.existingOrderId) {
+                    // Balcão: adiciona itens a pedido existente
+                    orderId = table.existingOrderId;
+                    logger.info('handleConfirm:order_reused', { order_id: orderId, table_id: 'balcao' });
+                } else {
+                    // Balcão: cria novo pedido com table_id = null
+                    const { data: newOrder, error: orderErr } = await supabase
+                        .from('orders')
+                        .insert({ table_id: null, status: 'fila', total_amount: 0 })
+                        .select('id')
+                        .single();
+                    if (orderErr || !newOrder) {
+                        logger.error('handleConfirm:order_create_failed', { table_id: 'balcao', error: orderErr?.message });
+                        throw new Error('Erro ao criar pedido de balcão: ' + orderErr?.message);
+                    }
+                    orderId = newOrder.id;
+                    createdNewOrder = true;
+                    logger.info('handleConfirm:order_created', { order_id: orderId, table_id: 'balcao' });
                 }
-                orderId = newOrder.id;
-                createdNewOrder = true;
-                logger.info('handleConfirm:order_created', { order_id: orderId, table_id: 'balcao' });
             } else {
                 // 1. Busca pedido ativo existente na mesa
                 const { data: existingOrders } = await supabase
@@ -647,6 +654,13 @@ export default function Mesas() {
         }
     };
 
+    const handleExcluirPedidoBalcao = async (orderId: string) => {
+        if (!confirm('Excluir este pedido de balcão? Esta ação não pode ser desfeita.')) return;
+        await supabase.from('order_items').delete().eq('order_id', orderId);
+        await supabase.from('orders').delete().eq('id', orderId);
+        fetchData();
+    };
+
     const handleLiberarMesa = async (id: number | null) => {
         if (id === null) return;
         await supabase.from('orders').update({ status: 'finalizado' }).eq('table_id', id).neq('status', 'finalizado');
@@ -788,12 +802,24 @@ export default function Mesas() {
                                     <p style={{ fontSize: 22, fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.03em' }}>
                                         R$ {orderTotal.toFixed(2).replace('.', ',')}
                                     </p>
-                                    <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 12px' }}>{order.order_items?.length} itens</p>
-                                    <button
-                                        onClick={() => handleOpenReceipt(order, true)}
-                                        className="btn btn-primary"
-                                        style={{ width: '100%', padding: '10px 0' }}
-                                    >Conta / Finalizar</button>
+                                    <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '4px 0 10px' }}>{order.order_items?.length} itens</p>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <button
+                                            onClick={() => handleOpenReceipt(order, true)}
+                                            className="btn btn-primary"
+                                            style={{ width: '100%', padding: '9px 0', fontSize: 11 }}
+                                        >🧾 Conta / Finalizar</button>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                            <button
+                                                onClick={() => setSearchModal({ id: null, name: 'Balcão', isCounter: true, status: 'available', total_amount: 0, existingOrderId: order.id })}
+                                                style={{ flex: 1, padding: '8px 0', borderRadius: 10, border: '1px solid rgba(80,167,115,0.3)', background: 'rgba(80,167,115,0.1)', color: 'var(--success)', fontWeight: 800, fontSize: 11, cursor: 'pointer' }}
+                                            >➕ Itens</button>
+                                            <button
+                                                onClick={() => handleExcluirPedidoBalcao(order.id)}
+                                                style={{ flex: 1, padding: '8px 0', borderRadius: 10, border: '1px solid rgba(234,29,44,0.3)', background: 'rgba(234,29,44,0.1)', color: 'var(--danger)', fontWeight: 800, fontSize: 11, cursor: 'pointer' }}
+                                            >🗑️ Excluir</button>
+                                        </div>
+                                    </div>
                                 </div>
                             );
                         })}
